@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rovio AI — Intelligent Solutions for Modern Business</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:#07080f; --bg2:#0d0f1a; --bg3:#111320;
+    --teal:#00d4aa; --teal2:#00b894; --blue:#3b82f6; --blue2:#6366f1;
+    --grad:linear-gradient(135deg,#00d4aa,#3b82f6);
+    --text:#f1f5f9; --muted:#94a3b8; --border:rgba(255,255,255,0.07);
+    --glass:rgba(255,255,255,0.04); --glass2:rgba(255,255,255,0.08);
+    --radius:16px; --radius-sm:10px; --shadow:0 24px 80px rgba(0,212,170,0.08);
+  }
+  html { scroll-behavior: smooth; }
+  body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:var(--bg); color:var(--text); line-height:1.6; overflow-x:hidden; }
+  a { color:inherit; text-decoration:none; }
+
+  .grad-text { background:var(--grad); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+  .container { max-width:1200px; margin:0 auto; padding:0 24px; }
+  .btn { display:inline-flex; align-items:center; gap:8px; padding:14px 28px; border-radius:50px; font-size:15px; font-weight:600; cursor:pointer; border:none; transition:all .3s; font-family:inherit; }
+  .btn-primary { background:var(--grad); color:#fff; box-shadow:0 0 30px rgba(0,212,170,0.25); }
+  .btn-primary:hover { transform:translateY(-2px); box-shadow:0 8px 40px rgba(0,212,170,0.4); }
+  .btn-outline { background:transparent; color:var(--text); border:1.5px solid var(--border); backdrop-filter:blur(10px); }
+  .btn-outline:hover { border-color:var(--teal); color:var(--teal); transform:translateY(-2px); }
+  .btn-sm { padding:10px 22px; font-size:14px; }
+  .tag { display:inline-block; padding:6px 16px; border-radius:50px; font-size:12px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; background:rgba(0,212,170,0.1); color:var(--teal); border:1px solid rgba(0,212,170,0.2); margin-bottom:16px; }
+  section { padding:120px 0; }
+
+  #bg-canvas { position:fixed; top:0; left:0; width:100%; height:100%; z-index:0; pointer-events:none; opacity:0.4; }
+
+  /* NAV */
+  nav { position:fixed; top:0; left:0; right:0; z-index:1000; padding:0 24px; transition:all .3s; }
+  nav.scrolled { background:rgba(7,8,15,0.88); backdrop-filter:blur(20px); border-bottom:1px solid var(--border); }
+  .nav-inner { max-width:1200px; margin:0 auto; display:flex; align-items:center; justify-content:space-between; height:80px; }
+  .nav-logo { font-size:22px; font-weight:800; letter-spacing:-0.5px; display:flex; align-items:center; gap:10px; }
+  .logo-mark { width:38px; height:38px; border-radius:10px; background:var(--grad); display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:900; flex-shrink:0; }
+  .nav-links { display:flex; align-items:center; gap:36px; list-style:none; }
+  .nav-links a { font-size:14px; font-weight:500; color:var(--muted); transition:color .2s; }
+  .nav-links a:hover { color:var(--text); }
+  .nav-cta { display:flex; align-items:center; gap:12px; }
+  .hamburger { display:none; background:none; border:none; cursor:pointer; padding:8px; }
+  .hamburger span { display:block; width:24px; height:2px; background:var(--text); margin:5px 0; }
+
+  /* HERO */
+  #hero { position:relative; min-height:100vh; display:flex; align-items:center; justify-content:center; text-align:center; padding:160px 24px 120px; z-index:1; }
+  .hero-glow { position:absolute; top:20%; left:50%; transform:translateX(-50%); width:700px; height:500px; background:radial-gradient(ellipse,rgba(0,212,170,0.12) 0%,rgba(59,130,246,0.08) 50%,transparent 70%); pointer-events:none; }
+  .hero-badge { display:inline-flex; align-items:center; gap:8px; padding:8px 20px; border-radius:50px; margin-bottom:32px; background:rgba(0,212,170,0.08); border:1px solid rgba(0,212,170,0.2); font-size:13px; font-weight:600; color:var(--teal); animation:fadeDown .8s ease both; }
+  .hero-badge .dot { width:7px; height:7px; border-radius:50%; background:var(--teal); animation:pulse 2s infinite; }
+  .hero-h1 { font-size:clamp(44px,7vw,84px); font-weight:900; line-height:1.05; letter-spacing:-2px; margin-bottom:24px; animation:fadeUp .9s ease .1s both; }
+  .hero-sub { font-size:clamp(17px,2.2vw,21px); color:var(--muted); max-width:620px; margin:0 auto 40px; animation:fadeUp .9s ease .2s both; }
+  .hero-actions { display:flex; align-items:center; justify-content:center; gap:16px; flex-wrap:wrap; animation:fadeUp .9s ease .3s both; }
+  .hero-stats { display:flex; align-items:center; justify-content:center; gap:48px; margin-top:80px; flex-wrap:wrap; animation:fadeUp .9s ease .4s both; }
+  .stat-item { text-align:center; }
+  .stat-num { font-size:36px; font-weight:800; line-height:1; }
+  .stat-label { font-size:13px; color:var(--muted); margin-top:4px; }
+  .hero-divider { width:1px; height:48px; background:var(--border); }
+
+  /* LOGOS */
+  #logos { padding:40px 0 80px; position:relative; z-index:1; border-bottom:1px solid var(--border); }
+  .logos-label { text-align:center; font-size:13px; color:var(--muted); margin-bottom:32px; letter-spacing:1px; text-transform:uppercase; }
+  .logos-track { display:flex; align-items:center; justify-content:center; gap:48px; flex-wrap:wrap; }
+  .logos-track span { font-size:18px; font-weight:700; color:rgba(255,255,255,0.2); letter-spacing:1px; transition:color .3s; }
+  .logos-track span:hover { color:rgba(255,255,255,0.5); }
+
+  /* SERVICES */
+  #services { position:relative; z-index:1; }
+  .section-header { text-align:center; margin-bottom:72px; }
+  .section-h2 { font-size:clamp(32px,4.5vw,52px); font-weight:800; letter-spacing:-1.5px; line-height:1.1; }
+  .section-sub { font-size:18px; color:var(--muted); margin-top:16px; max-width:560px; margin-left:auto; margin-right:auto; }
+  .services-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:28px; }
+  .service-card { background:var(--glass); border:1px solid var(--border); border-radius:24px; padding:40px 36px; position:relative; overflow:hidden; transition:all .4s; backdrop-filter:blur(10px); }
+  .service-card::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:var(--grad); opacity:0; transition:opacity .3s; }
+  .service-card:hover { transform:translateY(-8px); background:var(--glass2); border-color:rgba(0,212,170,0.2); box-shadow:var(--shadow); }
+  .service-card:hover::before { opacity:1; }
+  .service-icon { width:64px; height:64px; border-radius:18px; margin-bottom:28px; display:flex; align-items:center; justify-content:center; font-size:28px; }
+  .icon-teal { background:rgba(0,212,170,0.12); }
+  .icon-blue { background:rgba(59,130,246,0.12); }
+  .icon-purple { background:rgba(99,102,241,0.12); }
+  .service-h3 { font-size:22px; font-weight:700; margin-bottom:14px; }
+  .service-p { color:var(--muted); font-size:15px; line-height:1.7; margin-bottom:28px; }
+  .service-list { list-style:none; }
+  .service-list li { font-size:14px; color:var(--muted); padding:8px 0; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; }
+  .service-list li:last-child { border-bottom:none; }
+  .service-list li::before { content:''; width:6px; height:6px; border-radius:50%; background:var(--teal); flex-shrink:0; }
+  .card-glow { position:absolute; bottom:-60px; right:-60px; width:180px; height:180px; border-radius:50%; opacity:0.05; pointer-events:none; }
+  .glow-teal { background:var(--teal); } .glow-blue { background:var(--blue); } .glow-purple { background:var(--blue2); }
+
+  /* PROCESS */
+  #process { position:relative; z-index:1; }
+  .process-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:0; position:relative; }
+  .process-grid::before { content:''; position:absolute; top:36px; left:0; right:0; height:1px; background:linear-gradient(90deg,transparent,var(--teal),var(--blue),transparent); opacity:0.3; }
+  .step { text-align:center; padding:0 24px; }
+  .step-num { width:72px; height:72px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:22px; font-weight:800; margin:0 auto 24px; background:var(--bg2); border:2px solid var(--border); position:relative; z-index:1; transition:all .3s; }
+  .step:hover .step-num { background:var(--grad); border-color:transparent; color:#fff; }
+  .step-h4 { font-size:18px; font-weight:700; margin-bottom:10px; }
+  .step-p { font-size:14px; color:var(--muted); }
+
+  /* WHY */
+  #why { position:relative; z-index:1; }
+  .why-inner { display:grid; grid-template-columns:1fr 1fr; gap:80px; align-items:center; }
+  .why-visual { background:var(--glass); border:1px solid var(--border); border-radius:28px; padding:40px; display:flex; align-items:center; justify-content:center; position:relative; overflow:hidden; backdrop-filter:blur(10px); }
+  .why-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; width:100%; }
+  .mini-card { background:rgba(255,255,255,0.04); border:1px solid var(--border); border-radius:16px; padding:20px 16px; text-align:center; transition:all .3s; }
+  .mini-card:hover { background:rgba(0,212,170,0.06); border-color:rgba(0,212,170,0.2); }
+  .mini-num { font-size:28px; font-weight:800; line-height:1; }
+  .mini-label { font-size:12px; color:var(--muted); margin-top:4px; }
+  .why-content h2 { font-size:clamp(28px,3.5vw,44px); font-weight:800; letter-spacing:-1px; margin-bottom:24px; line-height:1.15; }
+  .why-content p { color:var(--muted); font-size:16px; margin-bottom:20px; line-height:1.75; }
+  .check-list { list-style:none; margin:28px 0; }
+  .check-list li { display:flex; align-items:flex-start; gap:12px; font-size:15px; margin-bottom:16px; color:var(--muted); }
+  .check-icon { width:22px; height:22px; border-radius:50%; background:rgba(0,212,170,0.15); display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:12px; color:var(--teal); margin-top:1px; }
+
+  /* TESTIMONIALS */
+  #testimonials { position:relative; z-index:1; }
+  .testi-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:24px; }
+  .testi-card { background:var(--glass); border:1px solid var(--border); border-radius:20px; padding:32px; backdrop-filter:blur(10px); transition:all .3s; }
+  .testi-card:hover { transform:translateY(-4px); border-color:rgba(0,212,170,0.15); }
+  .stars { color:var(--teal); font-size:15px; margin-bottom:16px; }
+  .testi-q { font-size:15px; color:var(--muted); line-height:1.75; margin-bottom:24px; font-style:italic; }
+  .testi-author { display:flex; align-items:center; gap:14px; }
+  .avatar { width:44px; height:44px; border-radius:50%; background:var(--grad); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:16px; flex-shrink:0; }
+  .author-name { font-weight:600; font-size:14px; }
+  .author-title { font-size:12px; color:var(--muted); }
+
+  /* CTA */
+  #cta { position:relative; z-index:1; }
+  .cta-box { background:linear-gradient(135deg,rgba(0,212,170,0.08),rgba(59,130,246,0.08)); border:1px solid rgba(0,212,170,0.15); border-radius:32px; padding:80px 60px; text-align:center; position:relative; overflow:hidden; backdrop-filter:blur(10px); }
+  .cta-box::before { content:''; position:absolute; top:-100px; left:50%; transform:translateX(-50%); width:400px; height:400px; background:radial-gradient(circle,rgba(0,212,170,0.1),transparent 70%); pointer-events:none; }
+  .cta-box h2 { font-size:clamp(28px,4vw,48px); font-weight:800; letter-spacing:-1px; margin-bottom:16px; }
+  .cta-box p { color:var(--muted); font-size:18px; margin-bottom:40px; max-width:500px; margin-left:auto; margin-right:auto; }
+  .cta-actions { display:flex; gap:16px; justify-content:center; flex-wrap:wrap; }
+
+  /* CONTACT */
+  #contact { position:relative; z-index:1; }
+  .contact-grid { display:grid; grid-template-columns:1fr 1.3fr; gap:60px; align-items:start; }
+  .contact-info h2 { font-size:clamp(28px,3.5vw,44px); font-weight:800; letter-spacing:-1px; margin-bottom:20px; }
+  .contact-info p { color:var(--muted); font-size:16px; line-height:1.75; margin-bottom:36px; }
+  .contact-item { display:flex; align-items:center; gap:14px; margin-bottom:20px; font-size:15px; color:var(--muted); }
+  .contact-icon { font-size:20px; }
+  .contact-form { background:var(--glass); border:1px solid var(--border); border-radius:24px; padding:40px; backdrop-filter:blur(10px); }
+  .form-row { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .form-group { margin-bottom:20px; }
+  .form-group label { display:block; font-size:13px; font-weight:600; color:var(--muted); margin-bottom:8px; text-transform:uppercase; letter-spacing:0.5px; }
+  .form-group input, .form-group select, .form-group textarea { width:100%; padding:14px 16px; border-radius:var(--radius-sm); background:rgba(255,255,255,0.04); border:1px solid var(--border); color:var(--text); font-size:15px; transition:border-color .2s; outline:none; font-family:inherit; }
+  .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color:var(--teal); }
+  .form-group select option { background:#1a1b2e; }
+  .form-group textarea { resize:vertical; min-height:120px; }
+
+  /* FORM SUCCESS / AUTOMATION VISUAL */
+  .form-success { display:none; background:rgba(0,212,170,0.08); border:1px solid rgba(0,212,170,0.25); border-radius:14px; padding:20px; margin-top:16px; }
+  .form-success-inner { display:flex; align-items:flex-start; gap:14px; }
+  .form-success-icon { font-size:28px; flex-shrink:0; }
+  .form-success-title { font-weight:700; font-size:15px; color:var(--teal); margin-bottom:4px; }
+  .form-success-msg { font-size:13px; color:var(--muted); line-height:1.6; }
+  .form-success-steps { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
+  .auto-step { display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:700; padding:4px 10px; border-radius:20px; background:rgba(0,212,170,0.12); color:var(--teal); border:1px solid rgba(0,212,170,0.2); }
+  .auto-step .chk { color:#00d4aa; }
+
+  /* FOOTER */
+  footer { border-top:1px solid var(--border); padding:60px 24px 40px; position:relative; z-index:1; }
+  .footer-inner { max-width:1200px; margin:0 auto; display:grid; grid-template-columns:2fr 1fr 1fr 1fr; gap:48px; }
+  .footer-brand p { color:var(--muted); font-size:14px; margin-top:16px; line-height:1.7; max-width:260px; }
+  .footer-col h5 { font-size:13px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:var(--muted); margin-bottom:20px; }
+  .footer-col ul { list-style:none; }
+  .footer-col ul li { margin-bottom:12px; }
+  .footer-col ul a { font-size:14px; color:var(--muted); transition:color .2s; }
+  .footer-col ul a:hover { color:var(--teal); }
+  .footer-bottom { max-width:1200px; margin:40px auto 0; padding-top:24px; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px; }
+  .footer-bottom p { font-size:13px; color:var(--muted); }
+  .footer-links { display:flex; gap:24px; }
+  .footer-links a { font-size:13px; color:var(--muted); transition:color .2s; }
+  .footer-links a:hover { color:var(--teal); }
+
+  /* ANIMATIONS */
+  @keyframes fadeUp { from{opacity:0;transform:translateY(24px)} to{opacity:1;transform:none} }
+  @keyframes fadeDown { from{opacity:0;transform:translateY(-16px)} to{opacity:1;transform:none} }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .fade-in { opacity:0; transform:translateY(30px); transition:opacity .7s,transform .7s; }
+  .fade-in.visible { opacity:1; transform:none; }
+
+  /* MOBILE */
+  @media(max-width:900px){
+    .nav-links,.nav-cta{display:none}
+    .hamburger{display:block}
+    .why-inner,.contact-grid{grid-template-columns:1fr}
+    .footer-inner{grid-template-columns:1fr 1fr}
+    .form-row{grid-template-columns:1fr}
+    .process-grid::before{display:none}
+  }
+  @media(max-width:600px){
+    section{padding:80px 0}
+    .footer-inner{grid-template-columns:1fr}
+    .cta-box{padding:48px 28px}
+  }
+  ::-webkit-scrollbar{width:6px} ::-webkit-scrollbar-track{background:transparent} ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:3px}
+</style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+
+<!-- NAV -->
+<nav id="navbar">
+  <div class="nav-inner">
+    <a href="index.html" class="nav-logo">
+      <div class="logo-mark">R</div>
+      Rovio <span class="grad-text">AI</span>
+    </a>
+    <ul class="nav-links">
+      <li><a href="#services">Services</a></li>
+      <li><a href="#process">How It Works</a></li>
+      <li><a href="about.html">About</a></li>
+      <li><a href="#testimonials">Results</a></li>
+      <li><a href="#contact">Contact</a></li>
+    </ul>
+    <div class="nav-cta">
+      <a href="portal.html" class="btn btn-outline btn-sm">Client Login</a>
+      <a href="#contact" class="btn btn-primary btn-sm">Get Started</a>
+    </div>
+    <button class="hamburger" aria-label="Menu"><span></span><span></span><span></span></button>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section id="hero">
+  <div class="hero-glow"></div>
+  <div class="container">
+    <div class="hero-badge"><span class="dot"></span>Now serving businesses across North America</div>
+    <h1 class="hero-h1">AI That Works<br><span class="grad-text">For Your Business</span></h1>
+    <p class="hero-sub">We consult, automate, and integrate artificial intelligence into your workflows — then coach your team to own it.</p>
+    <div class="hero-actions">
+      <a href="#contact" class="btn btn-primary">Book a Free Strategy Call ↗</a>
+      <a href="#services" class="btn btn-outline">Explore Services</a>
+    </div>
+    <div class="hero-stats">
+      <div class="stat-item"><div class="stat-num grad-text">50+</div><div class="stat-label">Businesses Transformed</div></div>
+      <div class="hero-divider"></div>
+      <div class="stat-item"><div class="stat-num grad-text">3×</div><div class="stat-label">Average Efficiency Gain</div></div>
+      <div class="hero-divider"></div>
+      <div class="stat-item"><div class="stat-num grad-text">40%</div><div class="stat-label">Average Cost Reduction</div></div>
+      <div class="hero-divider"></div>
+      <div class="stat-item"><div class="stat-num grad-text">100%</div><div class="stat-label">Client Satisfaction</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- SOCIAL PROOF -->
+<div id="logos">
+  <div class="container">
+    <p class="logos-label">Trusted by forward-thinking businesses</p>
+    <div class="logos-track">
+      <span>MERIDIAN</span><span>APEX CORP</span><span>VERITAS</span>
+      <span>NEXGEN</span><span>STRATUM</span><span>LUMINARY</span>
+    </div>
+  </div>
+</div>
+
+<!-- SERVICES -->
+<section id="services">
+  <div class="container">
+    <div class="section-header fade-in">
+      <div class="tag">Our Services</div>
+      <h2 class="section-h2">Everything You Need to<br><span class="grad-text">Lead with AI</span></h2>
+      <p class="section-sub">Three powerful services, one clear mission — making AI work for your business, not the other way around.</p>
+    </div>
+    <div class="services-grid">
+      <div class="service-card fade-in">
+        <div class="service-icon icon-teal">🧠</div>
+        <h3 class="service-h3">AI Consulting</h3>
+        <p class="service-p">Strategic guidance to identify where AI creates the greatest impact in your specific business model — no fluff, just results.</p>
+        <ul class="service-list">
+          <li>AI readiness assessment &amp; roadmap</li>
+          <li>Technology stack recommendations</li>
+          <li>ROI modeling &amp; business case development</li>
+          <li>Competitive AI landscape analysis</li>
+          <li>Executive briefings &amp; board presentations</li>
+        </ul>
+        <a href="consulting.html" class="btn btn-outline btn-sm" style="margin-top:1.25rem;display:inline-block">Learn More →</a>
+        <div class="card-glow glow-teal"></div>
+      </div>
+      <div class="service-card fade-in" style="transition-delay:.1s">
+        <div class="service-icon icon-blue">⚡</div>
+        <h3 class="service-h3">AI Automations</h3>
+        <p class="service-p">We design and deploy intelligent automation pipelines that eliminate repetitive work and free your team for what matters most.</p>
+        <ul class="service-list">
+          <li>Workflow automation design &amp; deployment</li>
+          <li>Document processing &amp; data extraction</li>
+          <li>AI-powered customer service bots</li>
+          <li>Sales outreach &amp; lead qualification</li>
+          <li>Reporting &amp; analytics automation</li>
+        </ul>
+        <a href="automations.html" class="btn btn-outline btn-sm" style="margin-top:1.25rem;display:inline-block">Learn More →</a>
+        <div class="card-glow glow-blue"></div>
+      </div>
+      <div class="service-card fade-in" style="transition-delay:.2s">
+        <div class="service-icon icon-purple">🎯</div>
+        <h3 class="service-h3">AI Integration &amp; Coaching</h3>
+        <p class="service-p">We don't just install AI — we embed it into your culture. Your team learns to work with AI confidently and independently.</p>
+        <ul class="service-list">
+          <li>Custom AI tool integration into existing systems</li>
+          <li>Team training workshops &amp; live sessions</li>
+          <li>Prompt engineering for your use cases</li>
+          <li>Ongoing coaching &amp; monthly check-ins</li>
+          <li>Adoption measurement &amp; optimization</li>
+        </ul>
+        <a href="coaching.html" class="btn btn-outline btn-sm" style="margin-top:1.25rem;display:inline-block">Learn More →</a>
+        <div class="card-glow glow-purple"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PROCESS -->
+<section id="process">
+  <div class="container">
+    <div class="section-header fade-in">
+      <div class="tag">How It Works</div>
+      <h2 class="section-h2">Your Path from <span class="grad-text">Idea to Impact</span></h2>
+      <p class="section-sub">A proven four-step process designed to get you real results fast.</p>
+    </div>
+    <div class="process-grid">
+      <div class="step fade-in"><div class="step-num grad-text">01</div><h4 class="step-h4">Discover</h4><p class="step-p">We map your current workflows, pain points, and opportunities in a focused strategy session.</p></div>
+      <div class="step fade-in" style="transition-delay:.1s"><div class="step-num grad-text">02</div><h4 class="step-h4">Design</h4><p class="step-p">We build a tailored AI roadmap with clear milestones, tools, and expected outcomes.</p></div>
+      <div class="step fade-in" style="transition-delay:.2s"><div class="step-num grad-text">03</div><h4 class="step-h4">Deploy</h4><p class="step-p">We implement your automations and integrations with minimal disruption to your operations.</p></div>
+      <div class="step fade-in" style="transition-delay:.3s"><div class="step-num grad-text">04</div><h4 class="step-h4">Empower</h4><p class="step-p">We coach your team to own and expand your AI capabilities independently over time.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- WHY US -->
+<section id="why">
+  <div class="container">
+    <div class="why-inner">
+      <div class="why-visual fade-in">
+        <div class="why-grid">
+          <div class="mini-card"><div class="mini-num grad-text">98%</div><div class="mini-label">Client retention</div></div>
+          <div class="mini-card"><div class="mini-num grad-text">3×</div><div class="mini-label">Avg. ROI in 90 days</div></div>
+          <div class="mini-card"><div class="mini-num grad-text">40h</div><div class="mini-label">Avg. hrs saved / month</div></div>
+          <div class="mini-card"><div class="mini-num grad-text">14d</div><div class="mini-label">Avg. time to first win</div></div>
+          <div class="mini-card" style="grid-column:1/-1"><div class="mini-num grad-text">100%</div><div class="mini-label">Human-led, AI-powered approach</div></div>
+        </div>
+      </div>
+      <div class="why-content fade-in">
+        <div class="tag">Why Rovio AI</div>
+        <h2>We Treat AI as a Tool, <span class="grad-text">Not a Magic Wand</span></h2>
+        <p>Too many AI firms overpromise and underdeliver. At Rovio AI, we start with your business problems — not the technology — and work backward to find the smartest solution.</p>
+        <ul class="check-list">
+          <li><div class="check-icon">✓</div><span>Business-first thinking — every solution mapped to real ROI</span></li>
+          <li><div class="check-icon">✓</div><span>Hands-on implementation, not just slide decks</span></li>
+          <li><div class="check-icon">✓</div><span>We train your team so you're never dependent on us</span></li>
+          <li><div class="check-icon">✓</div><span>Ongoing support as AI tools evolve</span></li>
+        </ul>
+        <a href="about.html" class="btn btn-outline" style="margin-right:12px">Meet Tony →</a>
+        <a href="#contact" class="btn btn-primary">Start Your AI Journey</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TESTIMONIALS -->
+<section id="testimonials">
+  <div class="container">
+    <div class="section-header fade-in">
+      <div class="tag">Client Results</div>
+      <h2 class="section-h2">Real Businesses, <span class="grad-text">Real Results</span></h2>
+    </div>
+    <div class="testi-grid">
+      <div class="testi-card fade-in">
+        <div class="stars">★★★★★</div>
+        <p class="testi-q">"Rovio AI cut our proposal-writing time by 70%. What used to take two days now takes two hours. The ROI was visible within the first week."</p>
+        <div class="testi-author"><div class="avatar">JM</div><div><div class="author-name">Jason M.</div><div class="author-title">CEO, Meridian Group</div></div></div>
+      </div>
+      <div class="testi-card fade-in" style="transition-delay:.1s">
+        <div class="stars">★★★★★</div>
+        <p class="testi-q">"I was skeptical about AI at first. The Rovio team didn't just implement tools — they coached us through the mindset shift. My team now runs with it independently."</p>
+        <div class="testi-author"><div class="avatar">SR</div><div><div class="author-name">Sandra R.</div><div class="author-title">Operations Director, Apex Corp</div></div></div>
+      </div>
+      <div class="testi-card fade-in" style="transition-delay:.2s">
+        <div class="stars">★★★★★</div>
+        <p class="testi-q">"The automation pipeline they built handles 300+ customer inquiries a day without a single human touch. Our support costs dropped 40% in 60 days."</p>
+        <div class="testi-author"><div class="avatar">DK</div><div><div class="author-name">David K.</div><div class="author-title">Founder, Nexgen Solutions</div></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section id="cta">
+  <div class="container">
+    <div class="cta-box fade-in">
+      <div class="tag">Get Started</div>
+      <h2>Ready to Build Your <span class="grad-text">AI Advantage?</span></h2>
+      <p>Book a free 30-minute strategy call. We'll identify your biggest AI opportunity and map out exactly how to capture it.</p>
+      <div class="cta-actions">
+        <a href="#contact" class="btn btn-primary">Book Free Strategy Call →</a>
+        <a href="mailto:hello@rovioai.com" class="btn btn-outline">hello@rovioai.com</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CONTACT -->
+<section id="contact">
+  <div class="container">
+    <div class="contact-grid">
+      <div class="contact-info fade-in">
+        <div class="tag">Contact Us</div>
+        <h2>Let's Talk <span class="grad-text">About Your Business</span></h2>
+        <p>Whether you're AI-curious or ready to deploy, we'd love to explore what's possible for your organization.</p>
+        <div class="contact-item"><span class="contact-icon">📧</span> hello@rovioai.com</div>
+        <div class="contact-item"><span class="contact-icon">📞</span> (555) 000-0000</div>
+        <div class="contact-item"><span class="contact-icon">🌐</span> rovioai.com</div>
+        <div class="contact-item"><span class="contact-icon">🕐</span> Mon–Fri, 9am–6pm EST</div>
+        <div style="margin-top:32px;padding:20px;background:rgba(0,212,170,0.06);border:1px solid rgba(0,212,170,0.15);border-radius:14px">
+          <div style="font-size:12px;font-weight:700;color:var(--teal);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">⚡ Automated Lead Capture</div>
+          <div style="font-size:13px;color:var(--muted);line-height:1.6">Every inquiry you submit is automatically added to our CRM as a new lead — so we never miss a beat.</div>
+        </div>
+      </div>
+      <div class="contact-form fade-in" style="transition-delay:.15s">
+        <div class="form-row">
+          <div class="form-group"><label>First Name</label><input type="text" id="cf-fname" placeholder="John"></div>
+          <div class="form-group"><label>Last Name</label><input type="text" id="cf-lname" placeholder="Smith"></div>
+        </div>
+        <div class="form-group"><label>Email</label><input type="email" id="cf-email" placeholder="john@company.com"></div>
+        <div class="form-group"><label>Company</label><input type="text" id="cf-company" placeholder="Company Name"></div>
+        <div class="form-group">
+          <label>Service Interested In</label>
+          <select id="cf-service">
+            <option value="">Select a service...</option>
+            <option>AI Consulting</option>
+            <option>AI Automations</option>
+            <option>AI Integration &amp; Coaching</option>
+            <option>All Three / Not Sure Yet</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Tell Us About Your Business</label><textarea id="cf-message" placeholder="What are your biggest challenges or goals right now?"></textarea></div>
+        <button class="btn btn-primary" style="width:100%" onclick="submitContactForm()">Send Message →</button>
+
+        <!-- AUTOMATION SUCCESS CARD -->
+        <div class="form-success" id="form-success">
+          <div class="form-success-inner">
+            <div class="form-success-icon">✅</div>
+            <div>
+              <div class="form-success-title">Message received — automation triggered!</div>
+              <div class="form-success-msg">Your inquiry has been added to our CRM as a new lead. We'll be in touch within one business day.</div>
+              <div class="form-success-steps">
+                <span class="auto-step"><span class="chk">✓</span> Lead created in CRM</span>
+                <span class="auto-step"><span class="chk">✓</span> Status: New Lead</span>
+                <span class="auto-step"><span class="chk">✓</span> Source: Web Form</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-inner">
+    <div class="footer-brand">
+      <div class="nav-logo"><div class="logo-mark">R</div>Rovio <span class="grad-text">AI</span></div>
+      <p>Intelligent AI solutions for forward-thinking businesses. We consult, automate, integrate, and coach.</p>
+    </div>
+    <div class="footer-col">
+      <h5>Services</h5>
+      <ul>
+        <li><a href="consulting.html">AI Consulting</a></li>
+        <li><a href="automations.html">AI Automations</a></li>
+        <li><a href="coaching.html">AI Integration &amp; Coaching</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h5>Company</h5>
+      <ul>
+        <li><a href="about.html">About Tony</a></li>
+        <li><a href="#process">How It Works</a></li>
+        <li><a href="#testimonials">Case Studies</a></li>
+        <li><a href="#contact">Contact</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h5>Connect</h5>
+      <ul>
+        <li><a href="https://www.linkedin.com/in/tonyrgreco/" target="_blank">LinkedIn</a></li>
+        <li><a href="#">Twitter / X</a></li>
+        <li><a href="#">YouTube</a></li>
+        <li><a href="portal.html">Client Portal</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <p>© 2025 Rovio AI. All rights reserved.</p>
+    <div class="footer-links"><a href="#">Privacy Policy</a><a href="#">Terms of Service</a></div>
+  </div>
+</footer>
+
+<script>
+/* CANVAS */
+(function(){
+  const c=document.getElementById('bg-canvas'),ctx=c.getContext('2d');
+  let W,H,P=[];
+  function resize(){W=c.width=window.innerWidth;H=c.height=window.innerHeight;}
+  resize();window.addEventListener('resize',resize);
+  for(let i=0;i<60;i++)P.push({x:Math.random()*2000,y:Math.random()*1200,r:Math.random()*1.5+.5,vx:(Math.random()-.5)*.3,vy:(Math.random()-.5)*.3,o:Math.random()*.5+.1});
+  function draw(){ctx.clearRect(0,0,W,H);P.forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fillStyle=`rgba(0,212,170,${p.o})`;ctx.fill();p.x+=p.vx;p.y+=p.vy;if(p.x<0)p.x=W;if(p.x>W)p.x=0;if(p.y<0)p.y=H;if(p.y>H)p.y=0;});requestAnimationFrame(draw);}
+  draw();
+})();
+
+/* NAVBAR */
+window.addEventListener('scroll',()=>document.getElementById('navbar').classList.toggle('scrolled',scrollY>50));
+
+/* FADE IN */
+const obs=new IntersectionObserver(e=>e.forEach(x=>{if(x.isIntersecting)x.target.classList.add('visible');}),{threshold:.1});
+document.querySelectorAll('.fade-in').forEach(el=>obs.observe(el));
+
+/* CONTACT FORM → CRM AUTOMATION */
+function submitContactForm(){
+  const v=id=>document.getElementById(id).value.trim();
+  if(!v('cf-fname')||!v('cf-email')){alert('Please fill in at least your name and email.');return;}
+
+  // Build lead object with source tagging
+  const lead={
+    id: Date.now(),
+    fname: v('cf-fname'),
+    lname: v('cf-lname'),
+    email: v('cf-email'),
+    company: v('cf-company'),
+    service: v('cf-service')||'Not specified',
+    status: 'Lead',
+    value: 0,
+    notes: v('cf-message'),
+    source: 'Web Form',
+    isNew: true,
+    created: new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}),
+    createdISO: new Date().toISOString()
+  };
+
+  // Save to shared localStorage (CRM reads same key)
+  const existing = JSON.parse(localStorage.getItem('rovio_contacts') || '[]');
+
+  // Seed sample data if first-ever submission (so CRM isn't empty)
+  const needsSeed = !localStorage.getItem('rovio_seeded');
+  if(needsSeed){
+    const samples=[
+      {id:1001,fname:'Michael',lname:'Torres',email:'m.torres@apexcorp.com',phone:'(555)210-3321',company:'Apex Corp',service:'AI Consulting',status:'Client',value:12000,notes:'Long-term client.',source:'Direct',isNew:false,created:'Jan 5, 2025',createdISO:'2025-01-05T00:00:00Z'},
+      {id:1002,fname:'Rachel',lname:'Kim',email:'rkim@nexgen.io',phone:'(555)447-8821',company:'Nexgen Solutions',service:'AI Automations',status:'Client',value:8500,notes:'Automation pipeline for customer support.',source:'Referral',isNew:false,created:'Jan 18, 2025',createdISO:'2025-01-18T00:00:00Z'},
+      {id:1003,fname:'James',lname:'Okafor',email:'jokafor@meridian.com',phone:'(555)993-2201',company:'Meridian Group',service:'AI Integration & Coaching',status:'Prospect',value:6000,notes:'Interested in team training.',source:'Direct',isNew:false,created:'Feb 2, 2025',createdISO:'2025-02-02T00:00:00Z'},
+    ];
+    localStorage.setItem('rovio_contacts', JSON.stringify([...samples,...existing, lead]));
+    localStorage.setItem('rovio_seeded','1');
+  } else {
+    localStorage.setItem('rovio_contacts', JSON.stringify([...existing, lead]));
+  }
+
+  // Log to activity feed
+  const activity = JSON.parse(localStorage.getItem('rovio_activity')||'[]');
+  activity.unshift({type:'web_form',name:`${lead.fname} ${lead.lname}`,company:lead.company,service:lead.service,time:new Date().toLocaleString()});
+  localStorage.setItem('rovio_activity', JSON.stringify(activity.slice(0,50)));
+
+  // Show automation confirmation
+  document.getElementById('form-success').style.display='block';
+  ['cf-fname','cf-lname','cf-email','cf-company','cf-message'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('cf-service').value='';
+}
+</script>
+
+<!-- ═══════════════════════════════════════════════════════
+     ROVIO AI CHATBOT WIDGET
+═══════════════════════════════════════════════════════ -->
+<style>
+#rvc-btn{position:fixed;bottom:28px;right:28px;width:58px;height:58px;border-radius:50%;background:linear-gradient(135deg,#00d4aa,#3b82f6);border:none;cursor:pointer;box-shadow:0 4px 24px rgba(0,212,170,.45);display:flex;align-items:center;justify-content:center;z-index:9999;transition:transform .2s,box-shadow .2s;}
+#rvc-btn:hover{transform:scale(1.1);box-shadow:0 6px 32px rgba(0,212,170,.6);}
+#rvc-btn svg{width:26px;height:26px;fill:#fff;transition:opacity .2s;}
+#rvc-badge{position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;font-size:11px;font-weight:700;width:20px;height:20px;border-radius:50%;display:none;align-items:center;justify-content:center;border:2px solid #07080f;}
+#rvc-panel{position:fixed;bottom:100px;right:28px;width:360px;height:520px;background:#0f1117;border:1px solid rgba(0,212,170,.2);border-radius:20px;box-shadow:0 20px 60px rgba(0,0,0,.6);display:flex;flex-direction:column;z-index:9998;overflow:hidden;transform:translateY(20px) scale(.95);opacity:0;pointer-events:none;transition:transform .25s cubic-bezier(.34,1.56,.64,1),opacity .2s;}
+#rvc-panel.open{transform:translateY(0) scale(1);opacity:1;pointer-events:all;}
+#rvc-head{padding:16px 18px;background:linear-gradient(135deg,rgba(0,212,170,.15),rgba(59,130,246,.1));border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;gap:12px;flex-shrink:0;}
+#rvc-head-avatar{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,#00d4aa,#3b82f6);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;}
+#rvc-head-info{flex:1;}
+#rvc-head-name{font-size:14px;font-weight:700;color:#fff;letter-spacing:.3px;}
+#rvc-head-status{font-size:11px;color:#00d4aa;display:flex;align-items:center;gap:5px;margin-top:2px;}
+#rvc-head-status::before{content:'';width:7px;height:7px;background:#00d4aa;border-radius:50%;display:inline-block;animation:rvc-pulse 2s infinite;}
+#rvc-close{background:none;border:none;cursor:pointer;color:rgba(255,255,255,.4);font-size:20px;line-height:1;padding:4px;border-radius:6px;transition:color .15s,background .15s;}
+#rvc-close:hover{color:#fff;background:rgba(255,255,255,.08);}
+#rvc-msgs{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;scroll-behavior:smooth;}
+#rvc-msgs::-webkit-scrollbar{width:4px;}
+#rvc-msgs::-webkit-scrollbar-track{background:transparent;}
+#rvc-msgs::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:2px;}
+.rvc-msg{display:flex;flex-direction:column;max-width:82%;animation:rvc-fadein .2s ease;}
+.rvc-msg.bot{align-self:flex-start;}
+.rvc-msg.user{align-self:flex-end;}
+.rvc-bubble{padding:10px 14px;border-radius:16px;font-size:13.5px;line-height:1.55;word-break:break-word;}
+.rvc-msg.bot .rvc-bubble{background:rgba(255,255,255,.07);color:#e2e8f0;border-bottom-left-radius:4px;}
+.rvc-msg.user .rvc-bubble{background:linear-gradient(135deg,#00d4aa,#00b894);color:#07080f;font-weight:500;border-bottom-right-radius:4px;}
+.rvc-time{font-size:10px;color:rgba(255,255,255,.25);margin-top:4px;padding:0 4px;}
+.rvc-msg.user .rvc-time{align-self:flex-end;}
+.rvc-typing{display:flex;align-items:center;gap:5px;padding:12px 14px;background:rgba(255,255,255,.07);border-radius:16px;border-bottom-left-radius:4px;width:fit-content;}
+.rvc-dot{width:7px;height:7px;background:rgba(255,255,255,.35);border-radius:50%;animation:rvc-bounce .9s infinite;}
+.rvc-dot:nth-child(2){animation-delay:.15s;}
+.rvc-dot:nth-child(3){animation-delay:.3s;}
+#rvc-suggestions{padding:0 16px 10px;display:flex;flex-wrap:wrap;gap:6px;flex-shrink:0;}
+.rvc-chip{background:rgba(0,212,170,.1);border:1px solid rgba(0,212,170,.25);color:#00d4aa;font-size:11.5px;padding:5px 11px;border-radius:20px;cursor:pointer;transition:background .15s,border-color .15s;white-space:nowrap;}
+.rvc-chip:hover{background:rgba(0,212,170,.2);border-color:#00d4aa;}
+#rvc-footer{padding:12px 16px;border-top:1px solid rgba(255,255,255,.07);display:flex;gap:8px;flex-shrink:0;}
+#rvc-input{flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:10px 14px;color:#fff;font-size:13.5px;outline:none;transition:border-color .15s;resize:none;font-family:inherit;}
+#rvc-input::placeholder{color:rgba(255,255,255,.3);}
+#rvc-input:focus{border-color:rgba(0,212,170,.5);}
+#rvc-send{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,#00d4aa,#3b82f6);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:opacity .15s,transform .1s;align-self:flex-end;}
+#rvc-send:hover{opacity:.85;}
+#rvc-send:active{transform:scale(.93);}
+#rvc-send svg{width:18px;height:18px;fill:#fff;}
+@keyframes rvc-bounce{0%,80%,100%{transform:translateY(0);}40%{transform:translateY(-6px);}}
+@keyframes rvc-pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+@keyframes rvc-fadein{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+@media(max-width:420px){#rvc-panel{width:calc(100vw - 24px);right:12px;bottom:90px;}}
+</style>
+
+<button id="rvc-btn" onclick="rvcToggle()" aria-label="Chat with Rovi AI">
+  <span id="rvc-badge">1</span>
+  <svg id="rvc-icon-chat" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 10H6v-2h12v2zm0-3H6V7h12v2z"/></svg>
+  <svg id="rvc-icon-close" viewBox="0 0 24 24" style="display:none"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+</button>
+
+<div id="rvc-panel">
+  <div id="rvc-head">
+    <div id="rvc-head-avatar">🤖</div>
+    <div id="rvc-head-info">
+      <div id="rvc-head-name">Rovi · AI Assistant</div>
+      <div id="rvc-head-status">Online · typically replies instantly</div>
+    </div>
+    <button id="rvc-close" onclick="rvcToggle()">✕</button>
+  </div>
+  <div id="rvc-msgs"></div>
+  <div id="rvc-suggestions">
+    <span class="rvc-chip" onclick="rvcSend('What services do you offer?')">Our Services</span>
+    <span class="rvc-chip" onclick="rvcSend('How much does it cost?')">Pricing</span>
+    <span class="rvc-chip" onclick="rvcSend('How do I get started?')">Get Started</span>
+    <span class="rvc-chip" onclick="rvcSend('Tell me about Tony Greco')">About Tony</span>
+  </div>
+  <div id="rvc-footer">
+    <input id="rvc-input" placeholder="Ask me anything…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();rvcSend();}"/>
+    <button id="rvc-send" onclick="rvcSend()">
+      <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+    </button>
+  </div>
+</div>
+
+<script>
+(function(){
+  var opened=false, badgeShown=true, msgCount=0;
+
+  var KB=[
+    {p:/\b(hi|hello|hey|howdy|good (morning|afternoon|evening)|greetings|sup)\b/i,
+     r:"Hi there! 👋 I'm Rovi, your Rovio AI assistant. I can answer questions about our services, pricing, or how to get started. What's on your mind?"},
+    {p:/\b(service|offer|what do you do|capabilities|provide|speciali[sz]e)\b/i,
+     r:"We offer three core services:\n\n🧠 AI Consulting — Strategic roadmapping & AI readiness assessments\n⚡ AI Automations — Custom workflow automation that eliminates repetitive work\n🎓 AI Integration & Coaching — Hands-on training so your team owns the tools\n\nWhich one would you like to know more about?"},
+    {p:/\b(consult|strategy|roadmap|assessment|advise|guidance)\b/i,
+     r:"Our AI Consulting service is ideal if you're not sure where AI fits in your business. We:\n\n• Run a full AI readiness assessment\n• Build a custom AI strategy roadmap\n• Identify your highest-ROI opportunities\n• Guide you through tool and vendor selection\n\nMost clients have a clear action plan within 2–4 weeks. Want to book a free call?"},
+    {p:/\b(automat|workflow|pipeline|repetitive|bot|integrat|process)\b/i,
+     r:"Our AI Automations service eliminates the manual tasks draining your team's time. We design and deploy:\n\n• Intelligent data processing pipelines\n• AI-powered customer communication workflows\n• Custom integrations between your existing tools\n• Real-time dashboards and reporting\n\nMost automations pay for themselves within 90 days. 🚀"},
+    {p:/\b(coach|train|team|learn|teach|workshop|education|skill)\b/i,
+     r:"Our AI Integration & Coaching program ensures your team can fully own and operate every AI system we build — no ongoing dependency on us.\n\nIncludes:\n• Hands-on workshops tailored to your workflows\n• Custom documentation and playbooks\n• Live support during rollout\n• Follow-up check-ins to keep things sharp\n\nWe empower your people, not create reliance on vendors."},
+    {p:/\b(price|pricing|cost|fee|rate|how much|charge|invest|budget)\b/i,
+     r:"Pricing is custom-scoped to your company size, project complexity, and goals — no generic packages.\n\nThe best first step is a free 30-minute strategy call where we map out your needs and give you a clear picture of investment vs. expected ROI. Zero pressure.\n\n👉 Hit \"Book a Free Strategy Call\" on our homepage!"},
+    {p:/\b(tony|greco|founder|ceo|who (are|is)|about rovio|company|background|experience|team)\b/i,
+     r:"Rovio AI was founded by Tony Greco — a technology leader with 20+ years across enterprise IT, cloud architecture, and AI implementation.\n\nTony has led initiatives at Walt Disney, AAA, and Vertek, and founded tekGIANTS before launching Rovio AI. He holds two Master's degrees in Computer Science from Regis University.\n\nCheck out the full story on our About page! 👤"},
+    {p:/\b(portal|client area|workspace|login|log in|access|dashboard|my account)\b/i,
+     r:"The Client Portal is a private Notion-like workspace where each client can:\n\n📁 Upload and manage project documents\n📊 Track real-time project progress\n📝 Create and share notes\n💬 Message our team directly\n\nExisting clients can log in via the Client Login link in the nav. Need access? Just reach out!"},
+    {p:/\b(contact|reach|email|phone|call|speak|talk|get in touch)\b/i,
+     r:"You can reach us a few ways:\n\n📧 hello@rovioai.com\n📞 (555) 123-4567\n📅 Book a free strategy call from our homepage\n\nWe typically respond within a few hours during business hours (Eastern Time)."},
+    {p:/\b(start|begin|get started|next step|how do i|first step|sign up|onboard)\b/i,
+     r:"Getting started is simple:\n\n1️⃣ Book a free 30-min strategy call\n2️⃣ We scope your project and send a proposal\n3️⃣ We build and deploy your AI solution\n4️⃣ Your team is trained and empowered to own it\n\nThe first call is free and no-obligation. Ready to take the step?"},
+    {p:/\b(ai|artificial intelligence|machine learning|gpt|llm|chatgpt|openai|claude|automation)\b/i,
+     r:"AI is transforming every industry — and the businesses moving now will have a real competitive edge.\n\nAt Rovio AI, we cut through the hype and focus on practical AI that delivers measurable ROI. No shiny demos, just real results.\n\nWhat's your biggest bottleneck right now? I can point you toward how AI might solve it. 💡"},
+    {p:/\b(thank|thanks|great|awesome|perfect|nice|helpful|appreciate)\b/i,
+     r:"Happy to help! 😊 Is there anything else you'd like to know about Rovio AI? I'm here if you have more questions."},
+    {p:/\b(bye|goodbye|see you|later|done|no thanks)\b/i,
+     r:"Thanks for chatting! If you ever have questions, I'm just a click away. Have a great day! 👋"}
+  ];
+
+  function fmt(t){
+    var now=new Date();
+    return now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  }
+
+  function addMsg(text,from){
+    var c=document.getElementById('rvc-msgs');
+    var wrap=document.createElement('div');
+    wrap.className='rvc-msg '+from;
+    var b=document.createElement('div');
+    b.className='rvc-bubble';
+    b.textContent=text;
+    var t=document.createElement('div');
+    t.className='rvc-time';
+    t.textContent=from==='bot'?'Rovi · '+fmt():fmt();
+    wrap.appendChild(b);
+    wrap.appendChild(t);
+    c.appendChild(wrap);
+    c.scrollTop=c.scrollHeight;
+    msgCount++;
+  }
+
+  function showTyping(){
+    var c=document.getElementById('rvc-msgs');
+    var d=document.createElement('div');
+    d.className='rvc-msg bot';
+    d.id='rvc-typing';
+    var b=document.createElement('div');
+    b.className='rvc-typing';
+    b.innerHTML='<div class="rvc-dot"></div><div class="rvc-dot"></div><div class="rvc-dot"></div>';
+    d.appendChild(b);
+    c.appendChild(d);
+    c.scrollTop=c.scrollHeight;
+    return d;
+  }
+
+  function botReply(text){
+    var match=null;
+    for(var i=0;i<KB.length;i++){
+      if(KB[i].p.test(text)){match=KB[i].r;break;}
+    }
+    if(!match) match="That's a great question! Our team can give you a personalized answer. The quickest path is booking a free strategy call — or feel free to email us at hello@rovioai.com. We'd love to help! 🙌";
+    var delay=600+Math.min(text.length*8,1200);
+    var typ=showTyping();
+    setTimeout(function(){
+      var t=document.getElementById('rvc-typing');
+      if(t) t.remove();
+      addMsg(match,'bot');
+    },delay);
+  }
+
+  window.rvcSend=function(preset){
+    var inp=document.getElementById('rvc-input');
+    var text=(preset||inp.value).trim();
+    if(!text) return;
+    inp.value='';
+    document.getElementById('rvc-suggestions').style.display='none';
+    addMsg(text,'user');
+    botReply(text);
+  };
+
+  window.rvcToggle=function(){
+    opened=!opened;
+    var panel=document.getElementById('rvc-panel');
+    var iconChat=document.getElementById('rvc-icon-chat');
+    var iconClose=document.getElementById('rvc-icon-close');
+    var badge=document.getElementById('rvc-badge');
+    panel.classList.toggle('open',opened);
+    iconChat.style.display=opened?'none':'block';
+    iconClose.style.display=opened?'block':'none';
+    if(opened){
+      badge.style.display='none';
+      badgeShown=false;
+      if(msgCount===0){
+        setTimeout(function(){
+          addMsg("👋 Hi! I'm Rovi, your Rovio AI assistant. Ask me about our services, pricing, how to get started — or anything else on your mind!","bot");
+        },300);
+      }
+      setTimeout(function(){document.getElementById('rvc-input').focus();},350);
+    }
+  };
+
+  // show badge after 3s to invite engagement
+  setTimeout(function(){
+    if(!opened){
+      var b=document.getElementById('rvc-badge');
+      b.style.display='flex';
+    }
+  },3000);
+})();
+</script>
+</body>
+</html>

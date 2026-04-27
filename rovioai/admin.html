@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rovio AI — Admin</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#07080f;--bg2:#0d0f1a;--bg3:#111320;
+  --teal:#00d4aa;--blue:#3b82f6;--indigo:#6366f1;--amber:#f59e0b;--red:#ef4444;
+  --grad:linear-gradient(135deg,#00d4aa,#3b82f6);
+  --text:#f1f5f9;--text2:#cbd5e1;--muted:#94a3b8;--muted2:#64748b;
+  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.11);
+  --glass:rgba(255,255,255,0.03);--glass2:rgba(255,255,255,0.06);
+  --sidebar-w:252px;
+}
+html,body{height:100%;overflow:hidden}
+body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;font-size:14px}
+a{color:inherit;text-decoration:none}
+button,input,select,textarea{font-family:inherit;font-size:inherit}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.08);border-radius:4px}
+::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,0.15)}
+
+/* ── UTILS ── */
+.grad-text{background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hidden{display:none!important}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* ══════════════════════════════
+   LOGIN
+══════════════════════════════ */
+#login-page{
+  position:fixed;inset:0;z-index:200;
+  display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(ellipse at 30% 50%,rgba(0,212,170,0.05),transparent 55%),
+             radial-gradient(ellipse at 70% 50%,rgba(59,130,246,0.05),transparent 55%),var(--bg);
+}
+.login-card{width:400px;background:rgba(13,15,26,0.97);border:1px solid var(--border2);border-radius:22px;padding:42px 38px;backdrop-filter:blur(20px)}
+.login-brand{display:flex;align-items:center;gap:10px;margin-bottom:28px}
+.logo-box{width:36px;height:36px;border-radius:10px;background:var(--grad);display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:900;color:#fff;flex-shrink:0}
+.login-brand .lname{font-size:19px;font-weight:800}
+.login-card h2{font-size:21px;font-weight:800;margin-bottom:4px}
+.login-card .sub{font-size:13px;color:var(--muted);margin-bottom:26px}
+.priv-badge{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:20px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);font-size:11px;font-weight:700;color:#f87171;margin-bottom:20px}
+.field{margin-bottom:15px}
+.field label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px}
+.field input{width:100%;padding:12px 14px;border-radius:10px;background:rgba(255,255,255,0.05);border:1.5px solid var(--border);color:var(--text);font-size:14px;outline:none;transition:border-color .2s}
+.field input:focus{border-color:var(--teal)}
+.btn-login{width:100%;padding:13px;border-radius:50px;background:var(--grad);color:#fff;font-size:14px;font-weight:700;border:none;cursor:pointer;transition:all .3s;margin-top:4px}
+.btn-login:hover{transform:translateY(-1px);box-shadow:0 6px 30px rgba(0,212,170,0.3)}
+.login-err{display:none;margin-top:11px;padding:10px 14px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:9px;font-size:13px;color:#f87171;text-align:center}
+.login-err.show{display:block}
+
+/* ══════════════════════════════
+   APP SHELL
+══════════════════════════════ */
+#app{position:fixed;inset:0;display:none;flex-direction:row}
+#app.active{display:flex}
+
+/* ── SIDEBAR ── */
+.sidebar{width:var(--sidebar-w);flex-shrink:0;background:rgba(10,11,20,0.99);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.sb-top{padding:16px 14px 12px;border-bottom:1px solid var(--border)}
+.sb-brand{display:flex;align-items:center;gap:9px;margin-bottom:2px}
+.sb-brand .bname{font-size:16px;font-weight:800}
+.sb-brand .badm{font-size:10px;padding:2px 8px;border-radius:20px;background:rgba(239,68,68,0.1);color:#f87171;font-weight:700;letter-spacing:.3px}
+.sb-nav{flex:1;overflow-y:auto;padding:10px 8px}
+.sb-section{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted2);padding:10px 8px 4px;margin-top:4px}
+.nav-btn{display:flex;align-items:center;gap:9px;width:100%;padding:9px 10px;border-radius:9px;font-size:13px;font-weight:500;color:var(--muted);background:none;border:none;text-align:left;transition:all .18s;cursor:pointer;position:relative}
+.nav-btn:hover{color:var(--text);background:var(--glass2)}
+.nav-btn.active{color:var(--teal);background:rgba(0,212,170,0.08);font-weight:600}
+.nav-icon{font-size:16px;width:24px;text-align:center;flex-shrink:0}
+.nb{margin-left:auto;background:var(--teal);color:#07080f;font-size:10px;font-weight:800;padding:1px 7px;border-radius:20px;min-width:18px;text-align:center}
+.nb-red{background:#ef4444;color:#fff}
+.sb-footer{padding:10px 8px 14px;border-top:1px solid var(--border)}
+.user-row{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:9px;cursor:pointer;transition:all .2s}
+.user-row:hover{background:rgba(239,68,68,0.07)}
+.u-av{width:34px;height:34px;border-radius:50%;background:var(--grad);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;flex-shrink:0;color:#fff}
+.u-name{font-size:13px;font-weight:600}
+.u-role{font-size:11px;color:var(--muted)}
+.logout-ico{margin-left:auto;font-size:17px;color:var(--muted);transition:color .2s}
+.user-row:hover .logout-ico{color:#f87171}
+
+/* ── MAIN ── */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.topbar{height:60px;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 26px;gap:12px;flex-shrink:0;background:rgba(7,8,15,0.6);backdrop-filter:blur(12px)}
+.topbar-title{font-size:16px;font-weight:700;flex:1}
+.tb-search{display:flex;align-items:center;gap:8px;background:var(--glass2);border:1px solid var(--border);border-radius:9px;padding:8px 13px}
+.tb-search input{background:none;border:none;outline:none;color:var(--text);font-size:13px;width:160px}
+.tb-notif{width:36px;height:36px;border-radius:9px;background:var(--glass2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:15px;position:relative;flex-shrink:0}
+.notif-dot{position:absolute;top:6px;right:6px;width:7px;height:7px;border-radius:50%;background:var(--teal);border:1.5px solid var(--bg)}
+.content{flex:1;overflow-y:auto;padding:26px}
+.panel{display:none;animation:fadeIn .2s ease}
+.panel.active{display:block}
+
+/* ── BUTTONS ── */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 20px;border-radius:50px;font-size:13px;font-weight:600;border:none;cursor:pointer;transition:all .2s}
+.btn-primary{background:var(--grad);color:#fff}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 4px 20px rgba(0,212,170,0.3)}
+.btn-ghost{background:var(--glass2);color:var(--text2);border:1px solid var(--border)}
+.btn-ghost:hover{border-color:var(--teal);color:var(--teal)}
+.btn-danger{background:rgba(239,68,68,0.08);color:#f87171;border:1px solid rgba(239,68,68,0.2)}
+.btn-danger:hover{background:rgba(239,68,68,0.15)}
+
+/* ── FORMS ── */
+.field{margin-bottom:15px}
+.field label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px}
+.field input,.field select,.field textarea{width:100%;padding:11px 13px;border-radius:9px;background:rgba(255,255,255,0.05);border:1.5px solid var(--border);color:var(--text);font-size:13px;outline:none;transition:border-color .2s}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--teal)}
+.field select option{background:#12131f}
+.field textarea{resize:vertical;min-height:70px}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
+/* ── CARDS & TABLES ── */
+.card{background:var(--glass2);border:1px solid var(--border);border-radius:14px;padding:22px}
+.card-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:18px;display:flex;align-items:center;justify-content:space-between}
+.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px}
+.kpi{background:var(--glass2);border:1px solid var(--border);border-radius:14px;padding:20px;position:relative;overflow:hidden;transition:border-color .2s}
+.kpi:hover{border-color:rgba(0,212,170,0.15)}
+.kpi-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+.kpi-val{font-size:30px;font-weight:800;margin:6px 0 3px;line-height:1}
+.kpi-sub{font-size:12px;color:var(--muted)}
+.kpi-icon{position:absolute;right:14px;top:14px;font-size:28px;opacity:.13}
+.table-wrap{background:var(--glass2);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+table{width:100%;border-collapse:collapse}
+th{padding:12px 16px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);text-align:left;border-bottom:1px solid var(--border)}
+td{padding:14px 16px;font-size:13px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:rgba(255,255,255,0.015)}
+.pill{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700}
+.p-lead{background:rgba(59,130,246,.15);color:#60a5fa}
+.p-prospect{background:rgba(245,158,11,.15);color:#fbbf24}
+.p-client{background:rgba(0,212,170,.15);color:var(--teal)}
+.p-inactive{background:rgba(148,163,184,.15);color:var(--muted)}
+.src-web{background:rgba(0,212,170,.12);color:var(--teal);font-size:10px;padding:2px 8px;border-radius:20px;font-weight:700}
+.src-ref{background:rgba(99,102,241,.12);color:#a5b4fc;font-size:10px;padding:2px 8px;border-radius:20px;font-weight:700}
+.src-dir{background:rgba(148,163,184,.12);color:var(--muted);font-size:10px;padding:2px 8px;border-radius:20px;font-weight:700}
+.new-badge{font-size:9px;font-weight:800;padding:2px 6px;border-radius:6px;background:rgba(0,212,170,.18);color:var(--teal);margin-left:5px;vertical-align:middle}
+.ia{background:none;border:1px solid var(--border);border-radius:7px;padding:4px 9px;cursor:pointer;color:var(--muted);font-size:13px;transition:all .2s}
+.ia:hover{border-color:var(--teal);color:var(--teal)}
+.ia.del:hover{border-color:#f87171;color:#f87171}
+
+/* ── TOOLBAR ── */
+.toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px}
+.search-wrap{display:flex;align-items:center;gap:8px;background:var(--glass2);border:1px solid var(--border);border-radius:9px;padding:8px 13px}
+.search-wrap input{background:none;border:none;outline:none;color:var(--text);font-size:13px;width:200px}
+.filter-sel{background:var(--glass2);border:1px solid var(--border);color:var(--text);padding:8px 13px;border-radius:9px;font-size:13px;outline:none;cursor:pointer}
+.filter-sel option{background:#12131f}
+
+/* ── PIPELINE BOARD ── */
+.board{display:flex;gap:14px;overflow-x:auto;padding-bottom:10px;min-height:460px}
+.board-col{flex:0 0 205px}
+.col-head{padding:10px 13px;border-radius:10px 10px 0 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:center;justify-content:space-between}
+.col-body{background:rgba(255,255,255,0.02);border:1px solid var(--border);border-top:none;border-radius:0 0 10px 10px;padding:9px;min-height:380px;display:flex;flex-direction:column;gap:8px}
+.b-card{background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:13px;transition:border-color .2s}
+.b-card:hover{border-color:rgba(0,212,170,.18)}
+.b-name{font-size:13px;font-weight:600;margin-bottom:4px}
+.b-co{font-size:11px;color:var(--muted);margin-bottom:5px}
+.b-val{font-size:12px;font-weight:700;color:var(--teal)}
+
+/* ── NOTES ── */
+.notes-layout{display:grid;grid-template-columns:232px 1fr;height:calc(100vh - 110px);overflow:hidden}
+.notes-sb{border-right:1px solid var(--border);padding:0 8px 16px;overflow-y:auto}
+.notes-sb-hd{display:flex;align-items:center;justify-content:space-between;padding:12px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+.note-item{padding:10px 11px;border-radius:9px;cursor:pointer;transition:all .18s;margin-bottom:2px;border:1px solid transparent}
+.note-item:hover{background:var(--glass2)}
+.note-item.sel{background:rgba(0,212,170,.07);border-color:rgba(0,212,170,.15)}
+.note-item-title{font-size:13px;font-weight:600;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.note-item-prev{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.note-item-date{font-size:10px;color:var(--muted2);margin-top:4px;opacity:.6}
+.note-ed{display:flex;flex-direction:column;overflow:hidden;padding:0 26px 16px}
+.note-ed-hd{display:flex;align-items:center;justify-content:space-between;padding:14px 0 11px;border-bottom:1px solid var(--border);margin-bottom:14px}
+.note-title-inp{font-size:20px;font-weight:800;background:none;border:none;outline:none;color:var(--text);width:100%;letter-spacing:-.2px}
+.ntoolbar{display:flex;gap:4px}
+.ntool{padding:4px 9px;border-radius:6px;background:none;border:1px solid var(--border);color:var(--muted);font-size:12px;font-weight:700;cursor:pointer;transition:all .15s}
+.ntool:hover{border-color:var(--teal);color:var(--teal)}
+.note-blocks{flex:1;overflow-y:auto;padding-right:4px}
+.n-block{margin-bottom:5px;position:relative}
+.n-block [contenteditable]{outline:none;display:block;width:100%;min-height:1.5em;padding:3px 5px;border-radius:5px;transition:background .15s;line-height:1.7}
+.n-block [contenteditable]:focus{background:rgba(255,255,255,0.03)}
+.n-block [contenteditable]:empty::before{content:attr(data-ph);color:var(--muted2);pointer-events:none}
+.block-h1 [contenteditable]{font-size:21px;font-weight:800}
+.block-h2 [contenteditable]{font-size:16px;font-weight:700}
+.block-p [contenteditable]{font-size:14px;color:var(--text2)}
+.block-ul [contenteditable]{font-size:14px;color:var(--text2);padding-left:18px}
+.block-ul [contenteditable]::before{content:'•';position:absolute;left:6px;color:var(--teal)}
+.block-divider{height:1px;background:var(--border);margin:10px 0}
+.note-foot{display:flex;align-items:center;justify-content:space-between;padding-top:10px;border-top:1px solid var(--border);margin-top:10px}
+.note-saved-lbl{font-size:12px;color:var(--muted)}
+.note-empty{flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;color:var(--muted)}
+
+/* ── MESSAGES (admin view) ── */
+.portal-layout{display:grid;grid-template-columns:220px 1fr;height:calc(100vh - 110px);overflow:hidden}
+.client-list{border-right:1px solid var(--border);padding:8px;overflow-y:auto}
+.client-list-hd{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);padding:8px 8px 12px}
+.cl-item{display:flex;align-items:center;gap:9px;padding:10px 10px;border-radius:9px;cursor:pointer;margin-bottom:2px;transition:all .18s;border:1px solid transparent}
+.cl-item:hover{background:var(--glass2)}
+.cl-item.sel{background:rgba(0,212,170,.07);border-color:rgba(0,212,170,.15)}
+.cl-av{width:32px;height:32px;border-radius:50%;background:var(--grad);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#fff;flex-shrink:0}
+.cl-name{font-size:13px;font-weight:600}
+.cl-co{font-size:11px;color:var(--muted)}
+.cl-unread{margin-left:auto;background:var(--teal);color:#07080f;font-size:10px;font-weight:800;padding:1px 7px;border-radius:20px}
+.msg-thread{display:flex;flex-direction:column;overflow:hidden;padding:0 24px 16px}
+.msg-thread-hd{padding:14px 0 11px;border-bottom:1px solid var(--border);margin-bottom:0;display:flex;align-items:center;gap:10px}
+.msg-feed{flex:1;overflow-y:auto;padding:16px 0;display:flex;flex-direction:column;gap:12px}
+.msg-row{display:flex;gap:8px;align-items:flex-end}
+.msg-row.from-admin{flex-direction:row-reverse}
+.msg-bub{max-width:65%;padding:10px 14px;border-radius:14px;font-size:13px;line-height:1.55}
+.msg-row.from-client .msg-bub{background:var(--glass2);border:1px solid var(--border);border-bottom-left-radius:3px;color:var(--text2)}
+.msg-row.from-admin .msg-bub{background:var(--grad);color:#fff;border-bottom-right-radius:3px;box-shadow:0 3px 16px rgba(0,212,170,.2)}
+.msg-av{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;flex-shrink:0}
+.av-cl{background:rgba(59,130,246,.18);color:#60a5fa}
+.av-me{background:rgba(0,212,170,.18);color:var(--teal)}
+.msg-meta-s{font-size:10px;color:var(--muted2);margin-top:3px;padding:0 3px}
+.msg-row.from-admin .msg-meta-s{text-align:right}
+.msg-input-wrap{border-top:1px solid var(--border);padding:14px 0 0;display:flex;gap:9px;align-items:flex-end}
+.msg-ta{flex:1;padding:10px 14px;background:var(--glass2);border:1.5px solid var(--border);border-radius:12px;color:var(--text);font-size:13px;resize:none;outline:none;min-height:42px;max-height:110px;line-height:1.5;transition:border-color .2s}
+.msg-ta:focus{border-color:var(--teal)}
+.msg-send{width:40px;height:40px;border-radius:50%;background:var(--grad);border:none;cursor:pointer;font-size:17px;flex-shrink:0;transition:all .2s}
+.msg-send:hover{transform:scale(1.1);box-shadow:0 3px 16px rgba(0,212,170,.35)}
+.no-thread{flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;color:var(--muted)}
+
+/* ── PORTAL ACCOUNTS ── */
+.acc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+.acc-card{background:var(--glass2);border:1px solid var(--border);border-radius:14px;padding:22px;transition:all .2s}
+.acc-card:hover{border-color:rgba(255,255,255,.12)}
+.acc-header{display:flex;align-items:center;gap:11px;margin-bottom:14px}
+.acc-av{width:42px;height:42px;border-radius:50%;background:var(--grad);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#fff;flex-shrink:0}
+.acc-name{font-size:15px;font-weight:700}
+.acc-co{font-size:12px;color:var(--muted)}
+.acc-meta{font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.6}
+.acc-status{display:inline-flex;align-items:center;gap:5px;padding:4px 11px;border-radius:20px;font-size:11px;font-weight:700;background:rgba(0,212,170,.1);color:var(--teal);margin-bottom:14px}
+.acc-actions{display:flex;gap:8px}
+
+/* ── SETTINGS ── */
+.settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.settings-card{background:var(--glass2);border:1px solid var(--border);border-radius:14px;padding:26px}
+.settings-card h3{font-size:14px;font-weight:700;margin-bottom:18px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+.setting-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border)}
+.setting-row:last-child{border-bottom:none}
+.setting-label{font-size:13px;font-weight:500}
+.setting-sub{font-size:11px;color:var(--muted);margin-top:2px}
+.toggle{position:relative;width:42px;height:23px;background:rgba(255,255,255,.07);border-radius:12px;cursor:pointer;transition:background .22s;flex-shrink:0}
+.toggle.on{background:var(--teal)}
+.toggle::after{content:'';position:absolute;top:3px;left:3px;width:17px;height:17px;border-radius:50%;background:#fff;transition:left .22s}
+.toggle.on::after{left:22px}
+
+/* ── ACTIVITY ── */
+.act-item{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--border)}
+.act-item:last-child{border-bottom:none}
+.act-ic{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.ac-web{background:rgba(0,212,170,.1)}
+.ac-man{background:rgba(59,130,246,.1)}
+.ac-msg{background:rgba(99,102,241,.1)}
+.act-txt{font-size:12px;color:var(--muted);line-height:1.5}
+.act-txt strong{color:var(--text)}
+.act-time{font-size:10px;color:var(--muted2);margin-top:2px}
+
+/* ── PIPE MINI ── */
+.pipe-mini-row{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.pml{font-size:12px;color:var(--muted);width:85px;flex-shrink:0}
+.pbar{flex:1;height:7px;background:rgba(255,255,255,.05);border-radius:4px;overflow:hidden}
+.pfill{height:100%;border-radius:4px;background:var(--grad);transition:width .7s}
+.pmc{font-size:12px;color:var(--muted);width:22px;text-align:right}
+
+/* DASH GRID */
+.dash-cols{display:grid;grid-template-columns:1.5fr 1fr;gap:16px}
+
+/* MODAL */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:9999;display:none;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+.overlay.open{display:flex}
+.modal{background:#0f1120;border:1px solid var(--border2);border-radius:20px;padding:32px;width:100%;max-width:500px;max-height:90vh;overflow-y:auto}
+.modal-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}
+.modal-hd h3{font-size:17px;font-weight:700}
+.modal-close{background:none;border:none;font-size:22px;color:var(--muted);cursor:pointer;line-height:1}
+.modal-close:hover{color:var(--text)}
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════
+     LOGIN  (admin only)
+══════════════════════════ -->
+<div id="login-page">
+  <div class="login-card">
+    <div class="login-brand">
+      <div class="logo-box">R</div>
+      <span class="lname">Rovio <span class="grad-text">AI</span></span>
+    </div>
+    <div class="priv-badge">🔒 Internal Access Only</div>
+    <h2>Admin Dashboard</h2>
+    <p class="sub">This area is restricted to authorised staff.</p>
+    <div class="field"><label>Username</label><input type="text" id="l-user" placeholder="admin" autocomplete="username"></div>
+    <div class="field"><label>Password</label><input type="password" id="l-pass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"></div>
+    <button class="btn-login" onclick="doLogin()">Sign In →</button>
+    <div class="login-err" id="l-err">Incorrect credentials.</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════
+     APP
+══════════════════════════ -->
+<div id="app">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sb-top">
+      <div class="sb-brand">
+        <div class="logo-box" style="width:32px;height:32px;border-radius:8px;font-size:15px">R</div>
+        <span class="bname">Rovio AI</span>
+        <span class="badm">ADMIN</span>
+      </div>
+    </div>
+    <nav class="sb-nav">
+      <div class="sb-section">CRM</div>
+      <button class="nav-btn active" onclick="nav('dashboard',this)"><span class="nav-icon">📊</span>Dashboard<span class="nb" id="nb-total" style="display:none">0</span></button>
+      <button class="nav-btn" onclick="nav('contacts',this)"><span class="nav-icon">👥</span>Contacts</button>
+      <button class="nav-btn" onclick="nav('pipeline',this)"><span class="nav-icon">🔀</span>Pipeline</button>
+      <button class="nav-btn" onclick="nav('notes',this)"><span class="nav-icon">📝</span>Notes</button>
+
+      <div class="sb-section">Client Portal</div>
+      <button class="nav-btn" id="msg-nav" onclick="nav('messages',this)"><span class="nav-icon">💬</span>Client Messages<span class="nb nb-red hidden" id="nb-msgs">0</span></button>
+      <button class="nav-btn" onclick="nav('accounts',this)"><span class="nav-icon">🗂️</span>Portal Accounts</button>
+
+      <div class="sb-section">System</div>
+      <button class="nav-btn" onclick="nav('settings',this)"><span class="nav-icon">⚙️</span>Settings</button>
+    </nav>
+    <div class="sb-footer">
+      <div class="user-row" onclick="doLogout()">
+        <div class="u-av">T</div>
+        <div><div class="u-name">Tony Greco</div><div class="u-role">Admin / Owner</div></div>
+        <span class="logout-ico">↩</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar-title" id="page-title">Dashboard</div>
+      <div class="tb-search"><span style="color:var(--muted);font-size:14px">🔍</span><input type="text" placeholder="Search contacts…" oninput="globalSearch(this.value)"></div>
+      <div class="tb-notif" id="tb-notif"><span>🔔</span><div class="notif-dot hidden" id="notif-dot"></div></div>
+      <button class="btn btn-primary" id="top-btn" onclick="openAddContact()">+ Add Contact</button>
+    </div>
+    <div class="content">
+
+      <!-- ── DASHBOARD ── -->
+      <div class="panel active" id="panel-dashboard">
+        <div class="kpi-grid">
+          <div class="kpi"><div class="kpi-label">Contacts</div><div class="kpi-val" id="k-total">0</div><div class="kpi-sub">Total</div><div class="kpi-icon">👥</div></div>
+          <div class="kpi"><div class="kpi-label">Leads</div><div class="kpi-val" id="k-leads">0</div><div class="kpi-sub">New leads</div><div class="kpi-icon">🎯</div></div>
+          <div class="kpi"><div class="kpi-label">Clients</div><div class="kpi-val" id="k-clients">0</div><div class="kpi-sub">Active</div><div class="kpi-icon">🤝</div></div>
+          <div class="kpi"><div class="kpi-label">Pipeline</div><div class="kpi-val" id="k-value">$0</div><div class="kpi-sub">Open value</div><div class="kpi-icon">💰</div></div>
+        </div>
+        <!-- portal message alert -->
+        <div id="portal-alert" class="hidden" style="display:flex;align-items:center;gap:14px;background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.2);border-radius:14px;padding:14px 18px;margin-bottom:18px">
+          <span style="font-size:22px">💬</span>
+          <div><div style="font-size:13px;font-weight:700;color:#a5b4fc" id="portal-alert-txt">New messages from clients</div><div style="font-size:12px;color:var(--muted)">Clients have sent messages through the portal.</div></div>
+          <button class="btn btn-ghost" style="margin-left:auto;flex-shrink:0;font-size:12px" onclick="nav('messages',document.querySelectorAll('.nav-btn')[4])">View →</button>
+        </div>
+        <div class="dash-cols">
+          <div class="card">
+            <div class="card-title">Recent Activity</div>
+            <div id="dash-activity"><div style="color:var(--muted);font-size:13px;text-align:center;padding:20px">No activity yet.</div></div>
+          </div>
+          <div class="card">
+            <div class="card-title">Pipeline</div>
+            <div id="dash-pipeline"></div>
+            <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+              <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:10px">Sources</div>
+              <div id="dash-sources"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── CONTACTS ── -->
+      <div class="panel" id="panel-contacts">
+        <div class="toolbar">
+          <div class="search-wrap"><span style="color:var(--muted);font-size:14px">🔍</span><input type="text" id="ct-q" placeholder="Search…" oninput="renderTable()"></div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select class="filter-sel" id="ct-status" onchange="renderTable()"><option value="">All Status</option><option>Lead</option><option>Prospect</option><option>Client</option><option>Inactive</option></select>
+            <select class="filter-sel" id="ct-src" onchange="renderTable()"><option value="">All Sources</option><option>Web Form</option><option>Direct</option><option>Referral</option><option>LinkedIn</option></select>
+            <button class="btn btn-primary" onclick="openAddContact()">+ Add Contact</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table><thead><tr><th>Name</th><th>Company</th><th>Email</th><th>Service</th><th>Source</th><th>Status</th><th>Value</th><th>Actions</th></tr></thead>
+          <tbody id="ct-tbody"></tbody></table>
+        </div>
+      </div>
+
+      <!-- ── PIPELINE ── -->
+      <div class="panel" id="panel-pipeline">
+        <div class="board" id="board"></div>
+      </div>
+
+      <!-- ── NOTES ── -->
+      <div class="panel" id="panel-notes">
+        <div class="notes-layout">
+          <div class="notes-sb">
+            <div class="notes-sb-hd">Notes<button class="ntool" onclick="newNote()" style="padding:2px 9px">+</button></div>
+            <div id="notes-items"></div>
+          </div>
+          <div id="note-ed-wrap" style="display:none;flex-direction:column;overflow:hidden;padding:0 24px 14px">
+            <div class="note-ed-hd">
+              <input class="note-title-inp" id="note-title" placeholder="Untitled…" oninput="schedNoteSave()">
+              <div class="ntoolbar">
+                <button class="ntool" onclick="addBlock('h1')">H1</button>
+                <button class="ntool" onclick="addBlock('h2')">H2</button>
+                <button class="ntool" onclick="addBlock('p')">¶</button>
+                <button class="ntool" onclick="addBlock('ul')">•</button>
+                <button class="ntool" onclick="addBlock('divider')">—</button>
+              </div>
+            </div>
+            <div class="note-blocks" id="note-blocks"></div>
+            <div class="note-foot">
+              <span class="note-saved-lbl" id="note-saved">Auto-saved</span>
+              <button class="btn btn-danger" style="padding:6px 14px;font-size:12px" onclick="delNote()">🗑 Delete</button>
+            </div>
+          </div>
+          <div class="note-empty" id="note-empty"><div style="font-size:36px;opacity:.3">📝</div><div style="font-size:13px;font-weight:600;color:var(--muted)">Select or create a note</div><button class="btn btn-primary" style="margin-top:10px;font-size:12px;padding:8px 16px" onclick="newNote()">+ New Note</button></div>
+        </div>
+      </div>
+
+      <!-- ── CLIENT MESSAGES ── -->
+      <div class="panel" id="panel-messages">
+        <div class="portal-layout">
+          <div class="client-list">
+            <div class="client-list-hd">Clients</div>
+            <div id="client-list-items"></div>
+          </div>
+          <div id="msg-thread-area" style="display:flex;flex-direction:column;overflow:hidden;padding:0 22px 14px">
+            <div id="no-thread" class="no-thread" style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;color:var(--muted)">
+              <div style="font-size:36px;opacity:.3">💬</div>
+              <div style="font-size:13px;font-weight:600;color:var(--muted)">Select a client to view their messages</div>
+            </div>
+            <div id="thread-content" style="display:none;flex-direction:column;overflow:hidden;flex:1">
+              <div class="msg-thread-hd" id="thread-header"></div>
+              <div class="msg-feed" id="msg-feed"></div>
+              <div class="msg-input-wrap">
+                <textarea class="msg-ta" id="admin-msg-input" placeholder="Reply to client…" rows="1"
+                  onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendAdminMsg()}"
+                  oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,110)+'px'"></textarea>
+                <button class="msg-send" onclick="sendAdminMsg()">➤</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── PORTAL ACCOUNTS ── -->
+      <div class="panel" id="panel-accounts">
+        <div class="acc-grid" id="acc-grid"></div>
+      </div>
+
+      <!-- ── SETTINGS ── -->
+      <div class="panel" id="panel-settings">
+        <div class="settings-grid">
+          <div class="settings-card">
+            <h3>Business Info</h3>
+            <div class="field"><label>Business Name</label><input type="text" value="Rovio AI"></div>
+            <div class="field"><label>Admin Email</label><input type="email" value="hello@rovioai.com"></div>
+            <div class="field"><label>Phone</label><input type="tel" value="(555) 000-0000"></div>
+            <button class="btn btn-primary" onclick="alert('Saved!')">Save</button>
+          </div>
+          <div class="settings-card">
+            <h3>Notifications</h3>
+            <div class="setting-row"><div><div class="setting-label">Portal Message Alerts</div><div class="setting-sub">When clients send messages</div></div><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+            <div class="setting-row"><div><div class="setting-label">New Web Form Lead</div><div class="setting-sub">Highlight on dashboard</div></div><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+            <div class="setting-row"><div><div class="setting-label">Weekly Summary</div><div class="setting-sub">Monday morning digest</div></div><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+          </div>
+          <div class="settings-card">
+            <h3>Change Admin Password</h3>
+            <div class="field"><label>Current</label><input type="password" id="s-cur" placeholder="••••••••"></div>
+            <div class="field"><label>New Password</label><input type="password" id="s-new" placeholder="••••••••"></div>
+            <div class="field"><label>Confirm</label><input type="password" id="s-con" placeholder="••••••••"></div>
+            <button class="btn btn-primary" onclick="changePw()">Update</button>
+            <span id="pw-msg" style="font-size:12px;margin-left:10px;display:none"></span>
+          </div>
+          <div class="settings-card">
+            <h3>Data</h3>
+            <div class="setting-row"><div><div class="setting-label">Export Contacts CSV</div></div><button class="btn btn-ghost" style="font-size:12px;padding:7px 14px" onclick="exportCSV()">⬇ Export</button></div>
+            <div class="setting-row"><div><div class="setting-label">Mark All Leads Seen</div></div><button class="btn btn-ghost" style="font-size:12px;padding:7px 14px" onclick="markAllSeen()">✓ Done</button></div>
+            <div class="setting-row"><div><div class="setting-label">Reset to Sample Data</div><div class="setting-sub">Clears contacts & reseeds</div></div><button class="btn btn-danger" style="font-size:12px;padding:7px 14px" onclick="resetData()">🗑 Reset</button></div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<!-- ADD/EDIT CONTACT MODAL -->
+<div class="overlay" id="contact-overlay">
+  <div class="modal">
+    <div class="modal-hd"><h3 id="modal-title">Add Contact</h3><button class="modal-close" onclick="closeModal()">×</button></div>
+    <div class="field-row">
+      <div class="field"><label>First Name *</label><input type="text" id="m-fn" placeholder="John"></div>
+      <div class="field"><label>Last Name</label><input type="text" id="m-ln" placeholder="Smith"></div>
+    </div>
+    <div class="field"><label>Email *</label><input type="email" id="m-em" placeholder="john@company.com"></div>
+    <div class="field"><label>Phone</label><input type="tel" id="m-ph" placeholder="(555) 000-0000"></div>
+    <div class="field"><label>Company</label><input type="text" id="m-co" placeholder="Acme Corp"></div>
+    <div class="field"><label>Service</label>
+      <select id="m-svc"><option>AI Consulting</option><option>AI Automations</option><option>AI Integration &amp; Coaching</option><option>Multiple Services</option></select>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Status</label>
+        <select id="m-st"><option>Lead</option><option>Prospect</option><option>Client</option><option>Inactive</option></select>
+      </div>
+      <div class="field"><label>Deal Value ($)</label><input type="number" id="m-val" placeholder="5000" min="0"></div>
+    </div>
+    <div class="field"><label>Source</label>
+      <select id="m-src"><option>Direct</option><option>Web Form</option><option>Referral</option><option>LinkedIn</option><option>Other</option></select>
+    </div>
+    <div class="field"><label>Notes</label><textarea id="m-notes" placeholder="Notes about this contact…"></textarea></div>
+    <input type="hidden" id="m-id">
+    <button class="btn btn-primary" style="width:100%" onclick="saveContact()">Save Contact</button>
+  </div>
+</div>
+
+<script>
+/* ════════════════════════════════════
+   AUTH
+════════════════════════════════════ */
+let ADMIN_PASS = localStorage.getItem('rovio_admin_pass') || 'rovioai2025';
+
+function doLogin(){
+  const u = document.getElementById('l-user').value.trim();
+  const p = document.getElementById('l-pass').value;
+  if(u==='admin' && p===ADMIN_PASS){
+    sessionStorage.setItem('admin_auth','1');
+    document.getElementById('l-err').classList.remove('show');
+    bootApp();
+  } else {
+    document.getElementById('l-err').classList.add('show');
+    document.getElementById('l-pass').value='';
+    document.getElementById('l-pass').focus();
+  }
+}
+
+function doLogout(){
+  sessionStorage.removeItem('admin_auth');
+  document.getElementById('app').classList.remove('active');
+  document.getElementById('login-page').style.display='flex';
+  document.getElementById('l-user').value='';
+  document.getElementById('l-pass').value='';
+}
+
+window.addEventListener('DOMContentLoaded',()=>{
+  if(sessionStorage.getItem('admin_auth')==='1') bootApp();
+  else { document.getElementById('login-page').style.display='flex'; setTimeout(()=>document.getElementById('l-user').focus(),100); }
+});
+
+function bootApp(){
+  document.getElementById('login-page').style.display='none';
+  document.getElementById('app').classList.add('active');
+  seedIfEmpty();
+  refreshAll();
+  nav('dashboard', document.querySelector('.nav-btn'));
+  checkPortalMessages();
+  setInterval(checkPortalMessages, 20000);
+}
+
+function changePw(){
+  const cur=document.getElementById('s-cur').value;
+  const nw=document.getElementById('s-new').value;
+  const cn=document.getElementById('s-con').value;
+  const msg=document.getElementById('pw-msg');
+  msg.style.display='inline';
+  if(cur!==ADMIN_PASS){msg.style.color='#f87171';msg.textContent='Current password wrong.';return;}
+  if(nw.length<6){msg.style.color='#f87171';msg.textContent='Min 6 characters.';return;}
+  if(nw!==cn){msg.style.color='#f87171';msg.textContent='Passwords do not match.';return;}
+  ADMIN_PASS=nw; localStorage.setItem('rovio_admin_pass',nw);
+  msg.style.color='var(--teal)';msg.textContent='✓ Updated.';
+  ['s-cur','s-new','s-con'].forEach(id=>document.getElementById(id).value='');
+}
+
+/* ════════════════════════════════════
+   CRM DATA
+════════════════════════════════════ */
+const SAMPLE=[
+  {id:1001,fn:'Michael',ln:'Torres',email:'m.torres@apexcorp.com',phone:'(555)210-3321',co:'Apex Corp',svc:'AI Consulting',status:'Client',value:12000,src:'Direct',notes:'Long-term client. Portal account: client1.',isNew:false,created:'Jan 5, 2025'},
+  {id:1002,fn:'Rachel',ln:'Kim',email:'rkim@nexgen.io',phone:'(555)447-8821',co:'Nexgen Solutions',svc:'AI Automations',status:'Client',value:8500,src:'Referral',notes:'Automation pipeline for customer support. Portal: client2.',isNew:false,created:'Jan 18, 2025'},
+  {id:1003,fn:'James',ln:'Okafor',email:'jokafor@meridian.com',phone:'(555)993-2201',co:'Meridian Group',svc:'AI Integration & Coaching',status:'Prospect',value:6000,src:'Direct',notes:'Follow up on training proposal. Portal: client3.',isNew:false,created:'Feb 2, 2025'},
+  {id:1004,fn:'Priya',ln:'Nair',email:'p.nair@veritas.co',phone:'(555)334-9902',co:'Veritas',svc:'AI Consulting',status:'Lead',value:3500,src:'Referral',notes:'Initial call booked.',isNew:false,created:'Feb 14, 2025'},
+  {id:1005,fn:'David',ln:'Lee',email:'dlee@stratum.ai',phone:'(555)678-4412',co:'Stratum AI',svc:'AI Automations',status:'Prospect',value:9000,src:'LinkedIn',notes:'Interested in sales outreach automation.',isNew:false,created:'Mar 1, 2025'},
+];
+function seedIfEmpty(){
+  if(!localStorage.getItem('rovio_seeded')){
+    localStorage.setItem('rovio_contacts',JSON.stringify(SAMPLE));
+    localStorage.setItem('rovio_seeded','1');
+  }
+}
+function getContacts(){ return JSON.parse(localStorage.getItem('rovio_contacts')||'[]'); }
+function setContacts(c){ localStorage.setItem('rovio_contacts',JSON.stringify(c)); }
+function getActivity(){ return JSON.parse(localStorage.getItem('rovio_activity')||'[]'); }
+function getNotes(){ return JSON.parse(localStorage.getItem('admin_notes')||'[]'); }
+function setNotes(n){ localStorage.setItem('admin_notes',JSON.stringify(n)); }
+
+/* ════════════════════════════════════
+   NAVIGATION
+════════════════════════════════════ */
+const TITLES={dashboard:'Dashboard',contacts:'Contacts',pipeline:'Pipeline',notes:'Notes',messages:'Client Messages',accounts:'Portal Accounts',settings:'Settings'};
+
+function nav(id,btn){
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  const panel=document.getElementById('panel-'+id);
+  if(panel)panel.classList.add('active');
+  if(btn)btn.classList.add('active');
+  document.getElementById('page-title').textContent=TITLES[id]||id;
+  // top-btn
+  const tb=document.getElementById('top-btn');
+  if(id==='notes'){tb.textContent='+ New Note';tb.onclick=newNote;}
+  else if(id==='contacts'){tb.textContent='+ Add Contact';tb.onclick=openAddContact;}
+  else if(id==='pipeline'){tb.textContent='+ Add Contact';tb.onclick=openAddContact;}
+  else{tb.textContent='';tb.style.display='none';}
+  if(['dashboard','contacts','pipeline'].includes(id)){tb.style.display='';tb.textContent=id==='notes'?'+ New Note':'+ Add Contact';}
+  if(id==='notes'){tb.style.display='';tb.textContent='+ New Note';tb.onclick=newNote;}
+  if(id==='messages'||id==='accounts'||id==='settings'){tb.style.display='none';}
+  // render
+  if(id==='dashboard')renderDash();
+  if(id==='contacts')renderTable();
+  if(id==='pipeline')renderBoard();
+  if(id==='notes')renderNotesList();
+  if(id==='messages')renderMessages();
+  if(id==='accounts')renderAccounts();
+}
+
+/* ════════════════════════════════════
+   DASHBOARD
+════════════════════════════════════ */
+function renderDash(){
+  const c=getContacts();
+  const leads=c.filter(x=>x.status==='Lead').length;
+  const clients=c.filter(x=>x.status==='Client').length;
+  const val=c.reduce((a,x)=>a+(Number(x.value)||0),0);
+  document.getElementById('k-total').textContent=c.length;
+  document.getElementById('k-leads').textContent=leads;
+  document.getElementById('k-clients').textContent=clients;
+  document.getElementById('k-value').textContent='$'+val.toLocaleString();
+  // Activity
+  const acts=getActivity();
+  const webNew=c.filter(x=>x.isNew&&x.src==='Web Form');
+  const fallback=c.slice(-6).reverse();
+  const actEl=document.getElementById('dash-activity');
+  if(acts.length){
+    actEl.innerHTML=acts.slice(0,6).map(a=>`
+      <div class="act-item">
+        <div class="act-ic ${a.type==='web_form'?'ac-web':a.type==='msg'?'ac-msg':'ac-man'}">${a.type==='web_form'?'🌐':a.type==='msg'?'💬':'✏️'}</div>
+        <div><div class="act-txt"><strong>${a.name}</strong>${a.company?' — '+a.company:''}</div><div class="act-time">${a.time}</div></div>
+      </div>`).join('');
+  } else {
+    actEl.innerHTML=fallback.map(x=>`
+      <div class="act-item">
+        <div class="act-ic ${x.src==='Web Form'?'ac-web':'ac-man'}">${x.src==='Web Form'?'🌐':'✏️'}</div>
+        <div><div class="act-txt"><strong>${x.fn} ${x.ln}</strong>${x.co?' — '+x.co:''}</div><div class="act-time">${x.created}</div></div>
+      </div>`).join('') || '<div style="color:var(--muted);font-size:13px;padding:16px 0">No activity yet.</div>';
+  }
+  // Pipeline mini
+  const stages=[['Lead','Lead'],['Prospect','Prospect'],['Client','Client'],['Inactive','Inactive']];
+  const mx=Math.max(1,...stages.map(([,k])=>c.filter(x=>x.status===k).length));
+  document.getElementById('dash-pipeline').innerHTML=stages.map(([l,k])=>{
+    const n=c.filter(x=>x.status===k).length;
+    return `<div class="pipe-mini-row"><div class="pml">${l}</div><div class="pbar"><div class="pfill" style="width:${(n/mx*100).toFixed(0)}%"></div></div><div class="pmc">${n}</div></div>`;
+  }).join('');
+  // Sources
+  const srcs={};
+  c.forEach(x=>{const s=x.src||'Direct';srcs[s]=(srcs[s]||0)+1;});
+  const smx=Math.max(1,...Object.values(srcs));
+  document.getElementById('dash-sources').innerHTML=Object.entries(srcs).map(([s,n])=>`
+    <div class="pipe-mini-row"><div class="pml">${s}</div><div class="pbar"><div class="pfill" style="width:${(n/smx*100).toFixed(0)}%;background:${s==='Web Form'?'var(--grad)':s==='Referral'?'linear-gradient(135deg,#6366f1,#3b82f6)':'linear-gradient(135deg,#3b82f6,#00d4aa)'}"></div></div><div class="pmc">${n}</div></div>`).join('');
+}
+
+/* ════════════════════════════════════
+   CONTACTS TABLE
+════════════════════════════════════ */
+const PC={Lead:'p-lead',Prospect:'p-prospect',Client:'p-client',Inactive:'p-inactive'};
+function srcCls(s){ return s==='Web Form'?'src-web':s==='Referral'?'src-ref':'src-dir'; }
+
+function renderTable(){
+  const q=(document.getElementById('ct-q')||{}).value?.toLowerCase()||'';
+  const sf=(document.getElementById('ct-status')||{}).value||'';
+  const sc=(document.getElementById('ct-src')||{}).value||'';
+  let c=getContacts();
+  if(q)c=c.filter(x=>`${x.fn} ${x.ln} ${x.email} ${x.co||''}`.toLowerCase().includes(q));
+  if(sf)c=c.filter(x=>x.status===sf);
+  if(sc)c=c.filter(x=>x.src===sc);
+  const tbody=document.getElementById('ct-tbody');
+  if(!c.length){tbody.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:36px">No contacts found.</td></tr>';return;}
+  tbody.innerHTML=c.map(x=>`<tr>
+    <td><strong>${x.fn} ${x.ln}</strong>${x.isNew?'<span class="new-badge">NEW</span>':''}</td>
+    <td style="color:var(--muted)">${x.co||'—'}</td>
+    <td style="color:var(--muted);font-size:12px">${x.email}</td>
+    <td style="font-size:12px;color:var(--muted)">${x.svc||'—'}</td>
+    <td><span class="${srcCls(x.src)}">${x.src||'Direct'}</span></td>
+    <td><span class="pill ${PC[x.status]||'p-lead'}">${x.status}</span></td>
+    <td style="color:var(--teal);font-weight:700">${x.value?'$'+Number(x.value).toLocaleString():'—'}</td>
+    <td><div style="display:flex;gap:6px"><button class="ia" onclick="editContact(${x.id})">✏️</button><button class="ia del" onclick="delContact(${x.id})">🗑</button></div></td>
+  </tr>`).join('');
+}
+
+function globalSearch(q){
+  nav('contacts',document.querySelectorAll('.nav-btn')[1]);
+  document.getElementById('ct-q').value=q;
+  renderTable();
+}
+
+/* ════════════════════════════════════
+   ADD / EDIT CONTACT
+════════════════════════════════════ */
+function openAddContact(){
+  document.getElementById('modal-title').textContent='Add Contact';
+  ['m-fn','m-ln','m-em','m-ph','m-co','m-notes'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('m-svc').value='AI Consulting';
+  document.getElementById('m-st').value='Lead';
+  document.getElementById('m-src').value='Direct';
+  document.getElementById('m-val').value='';
+  document.getElementById('m-id').value='';
+  document.getElementById('contact-overlay').classList.add('open');
+  setTimeout(()=>document.getElementById('m-fn').focus(),80);
+}
+function editContact(id){
+  const x=getContacts().find(c=>c.id===id);
+  if(!x) return;
+  document.getElementById('modal-title').textContent='Edit Contact';
+  document.getElementById('m-fn').value=x.fn||'';
+  document.getElementById('m-ln').value=x.ln||'';
+  document.getElementById('m-em').value=x.email||'';
+  document.getElementById('m-ph').value=x.phone||'';
+  document.getElementById('m-co').value=x.co||'';
+  document.getElementById('m-svc').value=x.svc||'AI Consulting';
+  document.getElementById('m-st').value=x.status||'Lead';
+  document.getElementById('m-src').value=x.src||'Direct';
+  document.getElementById('m-val').value=x.value||'';
+  document.getElementById('m-notes').value=x.notes||'';
+  document.getElementById('m-id').value=x.id;
+  document.getElementById('contact-overlay').classList.add('open');
+}
+function saveContact(){
+  const v=id=>document.getElementById(id).value.trim();
+  if(!v('m-fn')||!v('m-em')){alert('Name and email required.');return;}
+  let contacts=getContacts();
+  const eid=document.getElementById('m-id').value;
+  const obj={fn:v('m-fn'),ln:v('m-ln'),email:v('m-em'),phone:v('m-ph'),co:v('m-co'),svc:v('m-svc'),status:v('m-st'),src:v('m-src'),value:Number(v('m-val'))||0,notes:v('m-notes'),isNew:false,created:new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})};
+  if(eid){ contacts=contacts.map(c=>c.id===Number(eid)?{...c,...obj}:c); }
+  else {
+    const act=getActivity(); act.unshift({type:'manual',name:`${obj.fn} ${obj.ln}`,company:obj.co,src:obj.src,time:new Date().toLocaleString()}); localStorage.setItem('rovio_activity',JSON.stringify(act.slice(0,50)));
+    contacts.push({id:Date.now(),...obj});
+  }
+  setContacts(contacts); closeModal(); refreshAll();
+}
+function delContact(id){ if(!confirm('Delete?'))return; setContacts(getContacts().filter(c=>c.id!==id)); refreshAll(); }
+function closeModal(){ document.getElementById('contact-overlay').classList.remove('open'); }
+document.getElementById('contact-overlay').addEventListener('click',e=>{if(e.target===document.getElementById('contact-overlay'))closeModal();});
+function markAllSeen(){ setContacts(getContacts().map(c=>({...c,isNew:false}))); refreshAll(); }
+
+/* ════════════════════════════════════
+   PIPELINE BOARD
+════════════════════════════════════ */
+const STAGES=[{id:'Lead',label:'Lead',col:'#3b82f6'},{id:'Prospect',label:'Prospect',col:'#f59e0b'},{id:'Client',label:'Closed Won',col:'#00d4aa'},{id:'Inactive',label:'Inactive',col:'#64748b'}];
+function renderBoard(){
+  const contacts=getContacts();
+  document.getElementById('board').innerHTML=STAGES.map(s=>{
+    const cards=contacts.filter(c=>c.status===s.id);
+    const tv=cards.reduce((a,c)=>a+(Number(c.value)||0),0);
+    return `<div class="board-col">
+      <div class="col-head" style="background:${s.col}1a;color:${s.col}"><span>${s.label}</span><span style="background:${s.col}30;padding:2px 9px;border-radius:20px">${cards.length}</span></div>
+      <div class="col-body">
+        ${tv?`<div style="font-size:11px;color:${s.col};font-weight:700;padding:4px 0;margin-bottom:2px">$${tv.toLocaleString()}</div>`:''}
+        ${cards.map(c=>`<div class="b-card"><div class="b-name">${c.fn} ${c.ln}${c.isNew?'<span class="new-badge">NEW</span>':''}</div><div class="b-co">${c.co||''}</div><div style="font-size:11px;color:var(--muted);margin-bottom:4px">${c.svc||''}</div>${c.value?`<div class="b-val">$${Number(c.value).toLocaleString()}</div>`:''}<div class="b-src" style="margin-top:6px"><span class="${srcCls(c.src)}">${c.src||'Direct'}</span></div></div>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ════════════════════════════════════
+   NOTES
+════════════════════════════════════ */
+let curNote=null,noteTmr=null;
+function renderNotesList(){
+  const notes=getNotes();
+  document.getElementById('notes-items').innerHTML=notes.map(n=>`
+    <div class="note-item${curNote===n.id?' sel':''}" onclick="openNote(${n.id})">
+      <div class="note-item-title">${n.title||'Untitled'}</div>
+      <div class="note-item-prev">${plainText(n.blocks)}</div>
+      <div class="note-item-date">${n.updated}</div>
+    </div>`).join('')||'<div style="font-size:12px;color:var(--muted);padding:8px 10px">No notes.</div>';
+  const hasNote=curNote&&getNotes().find(n=>n.id===curNote);
+  document.getElementById('note-ed-wrap').style.display=hasNote?'flex':'none';
+  document.getElementById('note-ed-wrap').style.flexDirection='column';
+  document.getElementById('note-empty').style.display=hasNote?'none':'flex';
+}
+function plainText(blocks){ if(!blocks||!blocks.length)return'Empty…'; return(blocks.map(b=>b.content||'').join(' ')||'Empty…').slice(0,55); }
+function openNote(id){ curNote=id; const n=getNotes().find(x=>x.id===id); if(!n)return; document.getElementById('note-title').value=n.title||''; renderBlocks(n.blocks||[{id:Date.now(),type:'p',content:''}]); renderNotesList(); document.getElementById('note-ed-wrap').style.display='flex'; document.getElementById('note-empty').style.display='none'; }
+function newNote(){ const notes=getNotes(); const n={id:Date.now(),title:'Untitled',blocks:[{id:Date.now(),type:'p',content:''}],created:td(),updated:td()}; notes.unshift(n); setNotes(notes); curNote=n.id; renderNotesList(); openNote(n.id); setTimeout(()=>document.getElementById('note-title').focus(),50); }
+function addBlock(type){ const blocks=getCurBlocks(); blocks.push({id:Date.now(),type,content:''}); saveBlocks(blocks); renderBlocks(blocks); setTimeout(()=>{ const all=document.querySelectorAll('#note-blocks [contenteditable]'); if(all.length)all[all.length-1].focus(); },30); }
+function renderBlocks(blocks){ const container=document.getElementById('note-blocks'); if(!blocks.length){container.innerHTML='';return;} container.innerHTML=blocks.map((b,i)=>{ if(b.type==='divider')return`<div class="n-block block-divider" data-id="${b.id}"></div>`; const ph=b.type==='h1'?'Heading 1':b.type==='h2'?'Heading 2':b.type==='ul'?'List item':'Write something…'; return`<div class="n-block block-${b.type}" data-id="${b.id}"><div contenteditable="true" data-ph="${ph}" onkeydown="handleBlockKey(event,this,${b.id})" oninput="onBlockInput(this,${b.id})">${b.content}</div></div>`; }).join(''); }
+function getCurBlocks(){ const n=getNotes().find(x=>x.id===curNote); return n?(n.blocks||[]):[];}
+function handleBlockKey(e,el,bid){ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); const blocks=getCurBlocks(); const idx=blocks.findIndex(b=>b.id===bid); const nb={id:Date.now(),type:'p',content:''}; blocks.splice(idx+1,0,nb); saveBlocks(blocks); renderBlocks(blocks); setTimeout(()=>{ const all=document.querySelectorAll('#note-blocks [contenteditable]'); if(all[idx+1])all[idx+1].focus(); },20); } if(e.key==='Backspace'&&el.textContent===''){ const blocks=getCurBlocks(); const idx=blocks.findIndex(b=>b.id===bid); if(idx>0){blocks.splice(idx,1);saveBlocks(blocks);renderBlocks(blocks);setTimeout(()=>{const all=document.querySelectorAll('#note-blocks [contenteditable]');if(all[idx-1])all[idx-1].focus();},20);} e.preventDefault(); } }
+function onBlockInput(el,bid){ clearTimeout(noteTmr); noteTmr=setTimeout(()=>{ const blocks=getCurBlocks(); const b=blocks.find(x=>x.id===bid); if(b){b.content=el.textContent;saveBlocks(blocks);} },400); }
+function saveBlocks(blocks){ if(!curNote)return; const notes=getNotes(); const idx=notes.findIndex(n=>n.id===curNote); if(idx<0)return; notes[idx].blocks=blocks; notes[idx].updated=td(); setNotes(notes); renderNotesList(); showSaved(); }
+function schedNoteSave(){ if(!curNote)return; clearTimeout(noteTmr); noteTmr=setTimeout(()=>{ const notes=getNotes(); const idx=notes.findIndex(n=>n.id===curNote); if(idx<0)return; notes[idx].title=document.getElementById('note-title').value; notes[idx].updated=td(); setNotes(notes); renderNotesList(); showSaved(); },400); }
+function showSaved(){ const el=document.getElementById('note-saved'); if(el){el.textContent='Saved ✓';el.style.color='var(--teal)';setTimeout(()=>{el.textContent='Auto-saved';el.style.color='';},1500);} }
+function delNote(){ if(!curNote||!confirm('Delete?'))return; setNotes(getNotes().filter(n=>n.id!==curNote)); curNote=null; renderNotesList(); }
+function td(){ return new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
+
+/* ════════════════════════════════════
+   CLIENT MESSAGES (Admin View)
+════════════════════════════════════ */
+const PORTAL_CLIENTS={
+  client1:{name:'Michael Torres',co:'Apex Corp',av:'MT'},
+  client2:{name:'Rachel Kim',co:'Nexgen Solutions',av:'RK'},
+  client3:{name:'James Okafor',co:'Meridian Group',av:'JO'},
+};
+let selClient=null;
+
+function checkPortalMessages(){
+  let total=0;
+  Object.keys(PORTAL_CLIENTS).forEach(u=>{
+    const msgs=JSON.parse(localStorage.getItem(`rovio_portal_msg_${u}`)||'[]');
+    const unread=msgs.filter(m=>m.from!=='admin'&&!m.adminRead).length;
+    total+=unread;
+  });
+  const badge=document.getElementById('nb-msgs');
+  const dot=document.getElementById('notif-dot');
+  const alert=document.getElementById('portal-alert');
+  if(total>0){
+    badge.textContent=total; badge.classList.remove('hidden');
+    dot.classList.remove('hidden');
+    alert.classList.remove('hidden');
+    document.getElementById('portal-alert-txt').textContent=`${total} unread message${total>1?'s':''} from clients`;
+    alert.style.display='flex';
+  } else {
+    badge.classList.add('hidden'); dot.classList.add('hidden');
+    alert.classList.add('hidden');
+  }
+}
+
+function renderMessages(){
+  const listEl=document.getElementById('client-list-items');
+  listEl.innerHTML=Object.entries(PORTAL_CLIENTS).map(([u,info])=>{
+    const msgs=JSON.parse(localStorage.getItem(`rovio_portal_msg_${u}`)||'[]');
+    const unread=msgs.filter(m=>m.from!=='admin'&&!m.adminRead).length;
+    return `<div class="cl-item${selClient===u?' sel':''}" onclick="selectClient('${u}')">
+      <div class="cl-av">${info.av}</div>
+      <div><div class="cl-name">${info.name}</div><div class="cl-co">${info.co}</div></div>
+      ${unread?`<div class="cl-unread">${unread}</div>`:''}
+    </div>`;
+  }).join('');
+  if(selClient) renderThread(selClient);
+}
+
+function selectClient(u){
+  selClient=u;
+  // Mark admin-read
+  const msgs=JSON.parse(localStorage.getItem(`rovio_portal_msg_${u}`)||'[]').map(m=>({...m,adminRead:true}));
+  localStorage.setItem(`rovio_portal_msg_${u}`,JSON.stringify(msgs));
+  renderMessages();
+  renderThread(u);
+  checkPortalMessages();
+}
+
+function renderThread(u){
+  const info=PORTAL_CLIENTS[u];
+  const msgs=JSON.parse(localStorage.getItem(`rovio_portal_msg_${u}`)||'[]');
+  document.getElementById('no-thread').style.display='none';
+  const tc=document.getElementById('thread-content');
+  tc.style.display='flex';tc.style.flexDirection='column';
+  document.getElementById('thread-header').innerHTML=`
+    <div class="cl-av" style="width:36px;height:36px;font-size:13px">${info.av}</div>
+    <div>
+      <div style="font-size:14px;font-weight:700">${info.name}</div>
+      <div style="font-size:12px;color:var(--muted)">${info.co}</div>
+    </div>
+    <div style="margin-left:auto;font-size:12px;color:var(--muted)">${msgs.length} messages</div>`;
+  const feed=document.getElementById('msg-feed');
+  feed.innerHTML=msgs.map(m=>`
+    <div class="msg-row ${m.from==='admin'?'from-admin':'from-client'}">
+      <div class="msg-av ${m.from==='admin'?'av-me':'av-cl'}">${m.from==='admin'?'TG':info.av}</div>
+      <div>
+        <div class="msg-bub">${escHtml(m.text)}</div>
+        <div class="msg-meta-s">${m.from==='admin'?'You':info.name} · ${m.timestamp}</div>
+      </div>
+    </div>`).join('')||'<div style="color:var(--muted);font-size:13px;text-align:center;padding:30px">No messages yet.</div>';
+  setTimeout(()=>{feed.scrollTop=feed.scrollHeight;},50);
+}
+
+function sendAdminMsg(){
+  if(!selClient) return;
+  const ta=document.getElementById('admin-msg-input');
+  const text=ta.value.trim();
+  if(!text)return;
+  const msgs=JSON.parse(localStorage.getItem(`rovio_portal_msg_${selClient}`)||'[]');
+  msgs.push({id:Date.now(),from:'admin',text,timestamp:new Date().toLocaleString(),read:false,adminRead:true});
+  localStorage.setItem(`rovio_portal_msg_${selClient}`,JSON.stringify(msgs));
+  ta.value=''; ta.style.height='';
+  // Log activity
+  const act=getActivity(); const info=PORTAL_CLIENTS[selClient];
+  act.unshift({type:'msg',name:info.name,company:info.co,time:new Date().toLocaleString()});
+  localStorage.setItem('rovio_activity',JSON.stringify(act.slice(0,50)));
+  renderThread(selClient);
+}
+
+/* ════════════════════════════════════
+   PORTAL ACCOUNTS
+════════════════════════════════════ */
+function renderAccounts(){
+  const grid=document.getElementById('acc-grid');
+  grid.innerHTML=Object.entries(PORTAL_CLIENTS).map(([u,info])=>{
+    const msgs=JSON.parse(localStorage.getItem(`rovio_portal_msg_${u}`)||'[]').length;
+    const docs=JSON.parse(localStorage.getItem(`portal_${u}_docs`)||'[]').length;
+    const projs=JSON.parse(localStorage.getItem(`portal_${u}_projects`)||'[]').length;
+    return `<div class="acc-card">
+      <div class="acc-header">
+        <div class="acc-av">${info.av}</div>
+        <div><div class="acc-name">${info.name}</div><div class="acc-co">${info.co}</div></div>
+      </div>
+      <div class="acc-status">● Active</div>
+      <div class="acc-meta">
+        Username: <strong>${u}</strong><br>
+        Messages: ${msgs} &nbsp;·&nbsp; Documents: ${docs} &nbsp;·&nbsp; Projects: ${projs}
+      </div>
+      <div class="acc-actions">
+        <button class="btn btn-ghost" style="font-size:12px;padding:7px 12px" onclick="selectClient('${u}');nav('messages',document.querySelectorAll('.nav-btn')[4])">💬 View Messages</button>
+        <button class="btn btn-ghost" style="font-size:12px;padding:7px 12px" onclick="alert('Client portal account: ${u}\\nPassword: portal123/456/789 (by suffix)\\n\\nChange in portal.html ACCOUNTS object.')">🔑 Credentials</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ════════════════════════════════════
+   UTILITIES
+════════════════════════════════════ */
+function refreshAll(){ renderDash(); renderTable(); }
+function escHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>'); }
+
+function exportCSV(){
+  const c=getContacts();
+  const rows=[['First','Last','Email','Phone','Company','Service','Status','Source','Value','Created'],...c.map(x=>[x.fn,x.ln,x.email,x.phone||'',x.co||'',x.svc||'',x.status,x.src||'',x.value||0,x.created||''])];
+  const csv=rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a=document.createElement('a'); a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv); a.download='rovio_contacts.csv'; a.click();
+}
+
+function resetData(){ if(!confirm('Reset all contacts to sample data?'))return; localStorage.removeItem('rovio_contacts'); localStorage.removeItem('rovio_seeded'); localStorage.removeItem('rovio_activity'); seedIfEmpty(); refreshAll(); alert('Reset complete.'); }
+</script>
+
+<!-- ═══════════════════════════════════════════════════════
+     ROVIO AI CHATBOT WIDGET (ADMIN MODE)
+═══════════════════════════════════════════════════════ -->
+<style>
+#rvc-btn{position:fixed;bottom:28px;right:28px;width:58px;height:58px;border-radius:50%;background:linear-gradient(135deg,#00d4aa,#3b82f6);border:none;cursor:pointer;box-shadow:0 4px 24px rgba(0,212,170,.45);display:flex;align-items:center;justify-content:center;z-index:9999;transition:transform .2s,box-shadow .2s;}
+#rvc-btn:hover{transform:scale(1.1);box-shadow:0 6px 32px rgba(0,212,170,.6);}
+#rvc-btn svg{width:26px;height:26px;fill:#fff;}
+#rvc-badge{position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;font-size:11px;font-weight:700;width:20px;height:20px;border-radius:50%;display:none;align-items:center;justify-content:center;border:2px solid #07080f;}
+#rvc-panel{position:fixed;bottom:100px;right:28px;width:360px;height:520px;background:#0f1117;border:1px solid rgba(0,212,170,.2);border-radius:20px;box-shadow:0 20px 60px rgba(0,0,0,.6);display:flex;flex-direction:column;z-index:9998;overflow:hidden;transform:translateY(20px) scale(.95);opacity:0;pointer-events:none;transition:transform .25s cubic-bezier(.34,1.56,.64,1),opacity .2s;}
+#rvc-panel.open{transform:translateY(0) scale(1);opacity:1;pointer-events:all;}
+#rvc-head{padding:16px 18px;background:linear-gradient(135deg,rgba(0,212,170,.15),rgba(59,130,246,.1));border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;gap:12px;flex-shrink:0;}
+#rvc-head-avatar{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,#00d4aa,#3b82f6);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;}
+#rvc-head-info{flex:1;}
+#rvc-head-name{font-size:14px;font-weight:700;color:#fff;letter-spacing:.3px;}
+#rvc-head-status{font-size:11px;color:#00d4aa;display:flex;align-items:center;gap:5px;margin-top:2px;}
+#rvc-head-status::before{content:'';width:7px;height:7px;background:#00d4aa;border-radius:50%;display:inline-block;animation:rvc-pulse 2s infinite;}
+#rvc-close{background:none;border:none;cursor:pointer;color:rgba(255,255,255,.4);font-size:20px;line-height:1;padding:4px;border-radius:6px;transition:color .15s,background .15s;}
+#rvc-close:hover{color:#fff;background:rgba(255,255,255,.08);}
+#rvc-msgs{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;scroll-behavior:smooth;}
+#rvc-msgs::-webkit-scrollbar{width:4px;}
+#rvc-msgs::-webkit-scrollbar-track{background:transparent;}
+#rvc-msgs::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:2px;}
+.rvc-msg{display:flex;flex-direction:column;max-width:82%;animation:rvc-fadein .2s ease;}
+.rvc-msg.bot{align-self:flex-start;}
+.rvc-msg.user{align-self:flex-end;}
+.rvc-bubble{padding:10px 14px;border-radius:16px;font-size:13.5px;line-height:1.55;word-break:break-word;}
+.rvc-msg.bot .rvc-bubble{background:rgba(255,255,255,.07);color:#e2e8f0;border-bottom-left-radius:4px;}
+.rvc-msg.user .rvc-bubble{background:linear-gradient(135deg,#00d4aa,#00b894);color:#07080f;font-weight:500;border-bottom-right-radius:4px;}
+.rvc-time{font-size:10px;color:rgba(255,255,255,.25);margin-top:4px;padding:0 4px;}
+.rvc-msg.user .rvc-time{align-self:flex-end;}
+.rvc-typing{display:flex;align-items:center;gap:5px;padding:12px 14px;background:rgba(255,255,255,.07);border-radius:16px;border-bottom-left-radius:4px;width:fit-content;}
+.rvc-dot{width:7px;height:7px;background:rgba(255,255,255,.35);border-radius:50%;animation:rvc-bounce .9s infinite;}
+.rvc-dot:nth-child(2){animation-delay:.15s;}
+.rvc-dot:nth-child(3){animation-delay:.3s;}
+#rvc-suggestions{padding:0 16px 10px;display:flex;flex-wrap:wrap;gap:6px;flex-shrink:0;}
+.rvc-chip{background:rgba(0,212,170,.1);border:1px solid rgba(0,212,170,.25);color:#00d4aa;font-size:11.5px;padding:5px 11px;border-radius:20px;cursor:pointer;transition:background .15s,border-color .15s;white-space:nowrap;}
+.rvc-chip:hover{background:rgba(0,212,170,.2);border-color:#00d4aa;}
+#rvc-footer{padding:12px 16px;border-top:1px solid rgba(255,255,255,.07);display:flex;gap:8px;flex-shrink:0;}
+#rvc-input{flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:10px 14px;color:#fff;font-size:13.5px;outline:none;transition:border-color .15s;font-family:inherit;}
+#rvc-input::placeholder{color:rgba(255,255,255,.3);}
+#rvc-input:focus{border-color:rgba(0,212,170,.5);}
+#rvc-send{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,#00d4aa,#3b82f6);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:opacity .15s,transform .1s;align-self:flex-end;}
+#rvc-send:hover{opacity:.85;}
+#rvc-send:active{transform:scale(.93);}
+#rvc-send svg{width:18px;height:18px;fill:#fff;}
+@keyframes rvc-bounce{0%,80%,100%{transform:translateY(0);}40%{transform:translateY(-6px);}}
+@keyframes rvc-pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+@keyframes rvc-fadein{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+@media(max-width:420px){#rvc-panel{width:calc(100vw - 24px);right:12px;bottom:90px;}}
+</style>
+
+<button id="rvc-btn" onclick="rvcToggle()" aria-label="Chat with Rovi AI">
+  <span id="rvc-badge">1</span>
+  <svg id="rvc-icon-chat" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 10H6v-2h12v2zm0-3H6V7h12v2z"/></svg>
+  <svg id="rvc-icon-close" viewBox="0 0 24 24" style="display:none"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+</button>
+
+<div id="rvc-panel">
+  <div id="rvc-head">
+    <div id="rvc-head-avatar">🤖</div>
+    <div id="rvc-head-info">
+      <div id="rvc-head-name">Rovi · Admin Assistant</div>
+      <div id="rvc-head-status">Online · CRM helper</div>
+    </div>
+    <button id="rvc-close" onclick="rvcToggle()">✕</button>
+  </div>
+  <div id="rvc-msgs"></div>
+  <div id="rvc-suggestions">
+    <span class="rvc-chip" onclick="rvcSend('How do I add a contact?')">Add Contact</span>
+    <span class="rvc-chip" onclick="rvcSend('How does the pipeline work?')">Pipeline</span>
+    <span class="rvc-chip" onclick="rvcSend('How do I reply to a client message?')">Messages</span>
+    <span class="rvc-chip" onclick="rvcSend('How do I reset the data?')">Reset Data</span>
+  </div>
+  <div id="rvc-footer">
+    <input id="rvc-input" placeholder="Ask me anything…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();rvcSend();}"/>
+    <button id="rvc-send" onclick="rvcSend()">
+      <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+    </button>
+  </div>
+</div>
+
+<script>
+(function(){
+  var opened=false, msgCount=0;
+  var KB=[
+    {p:/\b(hi|hello|hey|howdy|good (morning|afternoon|evening)|greetings)\b/i,r:"Hey Tony! 👋 I'm Rovi, your CRM assistant. I can help you navigate contacts, the pipeline, client messages, portal accounts, and settings. What do you need?"},
+    {p:/\b(add|create|new) (contact|lead|client|prospect)\b/i,r:"To add a new contact:\n\n1. Click '+ Add Contact' in the top right of the dashboard\n2. Fill in name, email, company, service interest, status, and deal value\n3. Click Save Contact\n\nNew leads from your website contact form appear automatically with a 'NEW' badge! 🔔"},
+    {p:/\b(contact|lead|client|prospect|crm|manage)\b/i,r:"The Contacts section shows all your leads and clients. You can:\n\n• Filter by status (Lead, Prospect, Client, Inactive)\n• Search by name, email, or company\n• Click any row to edit details, add notes, or update status\n• See 'NEW' badges on fresh web form submissions"},
+    {p:/\b(pipeline|kanban|deal|stage|move|drag)\b/i,r:"The Pipeline is a Kanban board with four stages:\n\n🔵 Lead → 🟡 Prospect → 🟢 Client → ⚫ Inactive\n\nEach card shows the contact name, company, and deal value. Click a card to edit it, or use the contact editor to change their stage. The dashboard totals update automatically!"},
+    {p:/\b(message|chat|reply|client message|portal message)\b/i,r:"To view and reply to client messages:\n\n1. Click 'Client Messages' in the sidebar (under CLIENT PORTAL)\n2. Select a client from the left panel\n3. Read their messages in the right panel\n4. Type your reply and press Enter or click Send\n\nUnread messages show a badge on the dashboard. The portal polls for your replies every 20 seconds! 💬"},
+    {p:/\b(portal account|portal user|client access|client login)\b/i,r:"The Portal Accounts section shows all three client accounts:\n\n• client1 — Michael Torres / Apex Corp\n• client2 — Rachel Kim / Nexgen Solutions\n• client3 — James Okafor / Meridian Group\n\nYou can see their message count, document count, and project count. Password changes are managed via Settings."},
+    {p:/\b(note|notes|write|memo)\b/i,r:"The Notes section is your private admin notepad with a block-based editor:\n\n1. Click 'Notes' in the CRM section\n2. Give your note a title\n3. Click in the editor and start typing\n4. Press Enter for a new block\n\nNotes are auto-saved and only visible to you as admin. 📝"},
+    {p:/\b(password|change password|security|credentials)\b/i,r:"To change your admin password:\n\n1. Click 'Settings' in the sidebar\n2. Scroll to Change Password\n3. Enter your current password, new password, and confirm\n4. Click Save Password\n\nCurrent credentials: admin / rovioai2025 (change this to something strong!)"},
+    {p:/\b(reset|sample data|demo data|restore|default)\b/i,r:"To reset contacts to sample data:\n\n1. Click 'Settings' in the sidebar\n2. Scroll to the Danger Zone\n3. Click 'Reset to Sample Data'\n4. Confirm the prompt\n\n⚠️ This permanently removes all current contacts and restores the 5 demo contacts. Use with caution!"},
+    {p:/\b(new lead|web form|form submission|website lead|notification)\b/i,r:"When someone fills out the contact form on your website, they're automatically added to your CRM as a Lead with:\n\n• Source tagged as 'Web Form'\n• 'NEW' badge in the contacts list\n• Activity entry in the dashboard feed\n\nCheck the Contacts section and look for the 🔴 NEW badge!"},
+    {p:/\b(dashboard|overview|stats|total|summary)\b/i,r:"Your dashboard shows real-time stats:\n\n📊 Total contacts, new leads, active clients\n💰 Total open pipeline value\n📋 Recent activity feed\n🎯 Pipeline stage breakdown\n📈 Lead source distribution\n\nAll numbers update instantly as you add/edit contacts."},
+    {p:/\b(thank|thanks|great|helpful|awesome)\b/i,r:"Anytime, Tony! 😊 Let me know if you need anything else in the CRM."},
+    {p:/\b(bye|goodbye|done)\b/i,r:"See you later! The CRM is always here when you need it. 👋"}
+  ];
+  function fmt(){var n=new Date();return n.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});}
+  function addMsg(text,from){
+    var c=document.getElementById('rvc-msgs');
+    var w=document.createElement('div');w.className='rvc-msg '+from;
+    var b=document.createElement('div');b.className='rvc-bubble';b.textContent=text;
+    var t=document.createElement('div');t.className='rvc-time';t.textContent=from==='bot'?'Rovi · '+fmt():fmt();
+    w.appendChild(b);w.appendChild(t);c.appendChild(w);c.scrollTop=c.scrollHeight;msgCount++;
+  }
+  function showTyping(){
+    var c=document.getElementById('rvc-msgs');
+    var d=document.createElement('div');d.className='rvc-msg bot';d.id='rvc-typing';
+    var b=document.createElement('div');b.className='rvc-typing';
+    b.innerHTML='<div class="rvc-dot"></div><div class="rvc-dot"></div><div class="rvc-dot"></div>';
+    d.appendChild(b);c.appendChild(d);c.scrollTop=c.scrollHeight;
+  }
+  function botReply(text){
+    var match=null;
+    for(var i=0;i<KB.length;i++){if(KB[i].p.test(text)){match=KB[i].r;break;}}
+    if(!match) match="Good question! I'm still learning all the CRM details. For anything I can't answer, check the Settings page or refer to the original build notes. 🛠️";
+    var delay=500+Math.min(text.length*7,1000);
+    showTyping();
+    setTimeout(function(){var t=document.getElementById('rvc-typing');if(t)t.remove();addMsg(match,'bot');},delay);
+  }
+  window.rvcSend=function(preset){
+    var inp=document.getElementById('rvc-input');
+    var text=(preset||inp.value).trim();if(!text)return;
+    inp.value='';document.getElementById('rvc-suggestions').style.display='none';
+    addMsg(text,'user');botReply(text);
+  };
+  window.rvcToggle=function(){
+    opened=!opened;
+    var panel=document.getElementById('rvc-panel');
+    var iconChat=document.getElementById('rvc-icon-chat');
+    var iconClose=document.getElementById('rvc-icon-close');
+    var badge=document.getElementById('rvc-badge');
+    panel.classList.toggle('open',opened);
+    iconChat.style.display=opened?'none':'block';
+    iconClose.style.display=opened?'block':'none';
+    if(opened){
+      badge.style.display='none';
+      if(msgCount===0){setTimeout(function(){addMsg("Hey Tony! 👋 I'm Rovi, your admin assistant. Ask me how to use any part of the CRM — contacts, pipeline, client messages, and more!","bot");},300);}
+      setTimeout(function(){document.getElementById('rvc-input').focus();},350);
+    }
+  };
+  setTimeout(function(){if(!opened){var b=document.getElementById('rvc-badge');b.style.display='flex';}},3000);
+})();
+</script>
+</body>
+</html>

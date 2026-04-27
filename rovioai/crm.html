@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rovio AI — Client Portal</title>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#07080f;--bg2:#0d0f1a;--bg3:#111320;
+    --teal:#00d4aa;--blue:#3b82f6;--blue2:#6366f1;
+    --grad:linear-gradient(135deg,#00d4aa,#3b82f6);
+    --text:#f1f5f9;--muted:#94a3b8;
+    --border:rgba(255,255,255,0.07);--glass:rgba(255,255,255,0.04);--glass2:rgba(255,255,255,0.08);
+    --radius:16px;--radius-sm:10px;--shadow:0 24px 80px rgba(0,212,170,0.08);
+  }
+  html,body{height:100%;overflow:hidden}
+  body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);line-height:1.6}
+  a{color:inherit;text-decoration:none}
+  .grad-text{background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+
+  /* ── BUTTON ── */
+  .btn{display:inline-flex;align-items:center;gap:8px;padding:14px 28px;border-radius:50px;font-size:15px;font-weight:600;cursor:pointer;border:none;transition:all .3s;font-family:inherit}
+  .btn-primary{background:var(--grad);color:#fff;box-shadow:0 0 30px rgba(0,212,170,0.25)}
+  .btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 40px rgba(0,212,170,0.4)}
+  .btn-sm{padding:9px 20px;font-size:13px}
+  .btn-ghost{background:none;border:1px solid var(--border);color:var(--muted);padding:9px 16px;border-radius:8px;font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s}
+  .btn-ghost:hover{border-color:var(--teal);color:var(--teal)}
+  .btn-danger{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);color:#f87171;padding:9px 16px;border-radius:8px;font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s}
+  .btn-danger:hover{background:rgba(239,68,68,0.2)}
+
+  /* ── FORM ── */
+  .form-group{margin-bottom:18px}
+  .form-group label{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:7px;text-transform:uppercase;letter-spacing:.5px}
+  .form-group input,.form-group select,.form-group textarea{width:100%;padding:13px 15px;border-radius:var(--radius-sm);background:rgba(255,255,255,0.05);border:1.5px solid var(--border);color:var(--text);font-size:14px;transition:border-color .2s;outline:none;font-family:inherit}
+  .form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--teal)}
+  .form-group select option{background:#12131f}
+  .form-group textarea{resize:vertical;min-height:80px}
+  .form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+
+  /* ── CANVAS ── */
+  #bg-canvas{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none;opacity:.35}
+
+  /* ════════════════════════════
+     LOGIN PAGE
+  ════════════════════════════ */
+  #login-page{
+    position:fixed;inset:0;z-index:100;
+    display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(ellipse at 30% 50%,rgba(0,212,170,0.06),transparent 60%),
+               radial-gradient(ellipse at 70% 50%,rgba(59,130,246,0.06),transparent 60%);
+  }
+  .login-wrap{width:100%;max-width:440px;padding:24px}
+  .login-card{background:rgba(13,15,26,0.95);border:1px solid var(--border);border-radius:24px;padding:48px 44px;backdrop-filter:blur(20px)}
+  .login-logo{display:flex;align-items:center;gap:10px;margin-bottom:32px}
+  .logo-mark{width:40px;height:40px;border-radius:11px;background:var(--grad);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:900;flex-shrink:0;color:#fff}
+  .login-logo span{font-size:22px;font-weight:800}
+  .login-card h2{font-size:24px;font-weight:800;margin-bottom:6px}
+  .login-card .subtitle{color:var(--muted);font-size:14px;margin-bottom:36px}
+  .login-err{background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:10px;padding:12px 16px;font-size:13px;color:#f87171;margin-top:14px;display:none;align-items:center;gap:8px}
+  .login-err.show{display:flex}
+  .back-link{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);margin-top:20px;transition:color .2s}
+  .back-link:hover{color:var(--teal)}
+
+  /* ════════════════════════════
+     CRM APP SHELL
+  ════════════════════════════ */
+  #crm-app{position:fixed;inset:0;z-index:50;display:none}
+  #crm-app.active{display:flex}
+
+  /* SIDEBAR */
+  .sidebar{
+    width:250px;flex-shrink:0;background:rgba(13,15,26,0.98);
+    border-right:1px solid var(--border);display:flex;flex-direction:column;
+    overflow:hidden;z-index:10;
+  }
+  .sidebar-header{padding:20px 20px 0;border-bottom:1px solid var(--border);padding-bottom:20px}
+  .sidebar-logo{display:flex;align-items:center;gap:10px}
+  .sidebar-logo .name{font-size:17px;font-weight:800}
+  .sidebar-logo .badge{font-size:10px;background:rgba(0,212,170,0.12);color:var(--teal);padding:2px 8px;border-radius:20px;font-weight:700;letter-spacing:.5px}
+  .sidebar-section{padding:16px 12px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:rgba(148,163,184,0.4)}
+  .nav-item{
+    display:flex;align-items:center;gap:11px;
+    padding:11px 12px;margin:2px 0;border-radius:10px;
+    font-size:14px;color:var(--muted);cursor:pointer;
+    transition:all .2s;border:none;background:none;width:100%;text-align:left;
+    position:relative;font-family:inherit;
+  }
+  .nav-item:hover{color:var(--text);background:rgba(255,255,255,0.04)}
+  .nav-item.active{color:var(--teal);background:rgba(0,212,170,0.08);font-weight:600}
+  .nav-icon{font-size:17px;width:26px;text-align:center;flex-shrink:0}
+  .nav-badge{margin-left:auto;background:var(--teal);color:#07080f;font-size:10px;font-weight:800;padding:1px 7px;border-radius:20px;line-height:1.6}
+  .sidebar-footer{margin-top:auto;border-top:1px solid var(--border);padding:16px}
+  .user-row{display:flex;align-items:center;gap:10px}
+  .user-av{width:36px;height:36px;border-radius:50%;background:var(--grad);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0}
+  .user-name{font-size:13px;font-weight:600}
+  .user-role{font-size:11px;color:var(--muted)}
+  .logout-btn{margin-left:auto;background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:4px;line-height:1;transition:color .2s}
+  .logout-btn:hover{color:#f87171}
+
+  /* MAIN */
+  .main{flex:1;display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
+  .topbar{
+    height:64px;border-bottom:1px solid var(--border);
+    display:flex;align-items:center;padding:0 28px;gap:14px;flex-shrink:0;
+    background:rgba(7,8,15,0.6);backdrop-filter:blur(10px);
+  }
+  .topbar-title{font-size:17px;font-weight:700;flex:1}
+  .topbar-search{display:flex;align-items:center;gap:8px;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:9px;padding:8px 14px}
+  .topbar-search input{background:none;border:none;outline:none;color:var(--text);font-size:13px;width:170px;font-family:inherit}
+  .notif-btn{width:36px;height:36px;border-radius:9px;background:rgba(255,255,255,0.04);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px;position:relative;flex-shrink:0}
+  .notif-dot{position:absolute;top:6px;right:7px;width:7px;height:7px;border-radius:50%;background:var(--teal);border:1.5px solid var(--bg)}
+  .content{flex:1;overflow-y:auto;padding:28px}
+
+  /* PANELS */
+  .panel{display:none}
+  .panel.active{display:block}
+
+  /* ── KPI GRID ── */
+  .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+  .kpi{background:var(--glass);border:1px solid var(--border);border-radius:16px;padding:22px 20px;position:relative;overflow:hidden;transition:border-color .2s}
+  .kpi:hover{border-color:rgba(0,212,170,0.15)}
+  .kpi-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+  .kpi-val{font-size:32px;font-weight:800;margin:6px 0 4px;line-height:1}
+  .kpi-sub{font-size:12px;color:var(--muted)}
+  .kpi-sub.up{color:var(--teal)} .kpi-sub.down{color:#f87171}
+  .kpi-icon{position:absolute;right:16px;top:16px;font-size:30px;opacity:.15}
+
+  /* ── DASH GRID ── */
+  .dash-cols{display:grid;grid-template-columns:1.6fr 1fr;gap:20px;margin-top:24px}
+  .card{background:var(--glass);border:1px solid var(--border);border-radius:16px;padding:24px}
+  .card-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:20px;display:flex;align-items:center;justify-content:space-between}
+
+  /* ACTIVITY FEED */
+  .activity-item{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--border)}
+  .activity-item:last-child{border-bottom:none}
+  .act-icon{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+  .act-web{background:rgba(0,212,170,0.12)}
+  .act-manual{background:rgba(59,130,246,0.12)}
+  .act-text{font-size:13px;line-height:1.5}
+  .act-text strong{color:var(--text)}
+  .act-meta{font-size:11px;color:rgba(148,163,184,0.5);margin-top:3px}
+  .act-source{display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;margin-left:6px;vertical-align:middle}
+  .src-web{background:rgba(0,212,170,0.12);color:var(--teal)}
+  .src-manual{background:rgba(59,130,246,0.12);color:var(--blue)}
+  .src-referral{background:rgba(99,102,241,0.12);color:var(--blue2)}
+
+  /* PIPELINE MINI */
+  .pipe-mini-row{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  .pipe-mini-label{font-size:12px;color:var(--muted);width:88px;flex-shrink:0}
+  .pipe-bar{flex:1;height:8px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden}
+  .pipe-fill{height:100%;border-radius:4px;background:var(--grad);transition:width .8s}
+  .pipe-mini-count{font-size:12px;color:var(--muted);width:24px;text-align:right}
+
+  /* ── TABLE ── */
+  .table-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:12px}
+  .search-wrap{display:flex;align-items:center;gap:8px;background:var(--glass);border:1px solid var(--border);border-radius:9px;padding:9px 14px}
+  .search-wrap input{background:none;border:none;outline:none;color:var(--text);font-size:13px;width:210px;font-family:inherit}
+  .filter-wrap{display:flex;gap:10px;align-items:center}
+  .filter-sel{background:var(--glass);border:1px solid var(--border);color:var(--text);padding:9px 14px;border-radius:9px;font-size:13px;font-family:inherit;outline:none;cursor:pointer}
+  .table-wrap{background:var(--glass);border:1px solid var(--border);border-radius:16px;overflow:hidden}
+  table{width:100%;border-collapse:collapse}
+  th{padding:13px 18px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);text-align:left;border-bottom:1px solid var(--border)}
+  td{padding:15px 18px;font-size:14px;border-bottom:1px solid var(--border);vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  tr:hover td{background:rgba(255,255,255,0.02)}
+  .pill{display:inline-block;padding:4px 11px;border-radius:20px;font-size:11px;font-weight:700}
+  .p-lead{background:rgba(59,130,246,0.15);color:#60a5fa}
+  .p-prospect{background:rgba(245,158,11,0.15);color:#fbbf24}
+  .p-client{background:rgba(0,212,170,0.15);color:var(--teal)}
+  .p-inactive{background:rgba(148,163,184,0.15);color:var(--muted)}
+  .new-badge{display:inline-block;font-size:9px;font-weight:800;padding:2px 6px;border-radius:6px;background:rgba(0,212,170,0.2);color:var(--teal);margin-left:6px;vertical-align:middle;letter-spacing:.5px}
+  .row-actions{display:flex;gap:6px}
+  .ia{background:none;border:1px solid var(--border);border-radius:7px;padding:5px 10px;cursor:pointer;color:var(--muted);font-size:13px;transition:all .2s;font-family:inherit}
+  .ia:hover{border-color:var(--teal);color:var(--teal)}
+  .ia.del:hover{border-color:#f87171;color:#f87171}
+
+  /* ── PIPELINE BOARD ── */
+  .board{display:flex;gap:16px;overflow-x:auto;padding-bottom:12px;min-height:480px}
+  .board-col{flex:0 0 210px}
+  .col-head{padding:12px 14px;border-radius:12px 12px 0 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:center;justify-content:space-between}
+  .col-body{background:rgba(255,255,255,0.02);border:1px solid var(--border);border-top:none;border-radius:0 0 12px 12px;padding:10px;min-height:380px;display:flex;flex-direction:column;gap:8px}
+  .board-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px;cursor:default;transition:border-color .2s}
+  .board-card:hover{border-color:rgba(0,212,170,0.2)}
+  .bc-name{font-size:13px;font-weight:600;margin-bottom:5px}
+  .bc-co{font-size:11px;color:var(--muted);margin-bottom:6px}
+  .bc-val{font-size:12px;font-weight:600;color:var(--teal)}
+  .bc-src{font-size:10px;margin-top:6px}
+
+  /* ── NOTES ── */
+  .notes-layout{display:grid;grid-template-columns:280px 1fr;gap:20px;height:calc(100vh - 180px)}
+  .notes-sidebar{display:flex;flex-direction:column;gap:8px;overflow-y:auto}
+  .note-item{background:var(--glass);border:1px solid var(--border);border-radius:12px;padding:14px;cursor:pointer;transition:all .2s}
+  .note-item:hover,.note-item.sel{border-color:rgba(0,212,170,0.25);background:rgba(0,212,170,0.04)}
+  .note-item-title{font-size:14px;font-weight:600;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .note-item-preview{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .note-item-meta{font-size:11px;color:rgba(148,163,184,0.4);margin-top:8px}
+  .note-editor{background:var(--glass);border:1px solid var(--border);border-radius:16px;padding:28px;display:flex;flex-direction:column;overflow:hidden}
+  .note-editor input{font-size:20px;font-weight:700;background:none;border:none;outline:none;color:var(--text);font-family:inherit;margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border)}
+  .note-editor textarea{flex:1;background:none;border:none;outline:none;color:var(--text);font-family:inherit;font-size:15px;line-height:1.75;resize:none}
+  .note-toolbar{display:flex;align-items:center;justify-content:space-between;margin-top:16px;padding-top:16px;border-top:1px solid var(--border)}
+  .note-saved{font-size:12px;color:rgba(148,163,184,0.5)}
+
+  /* ── SETTINGS ── */
+  .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  .settings-card{background:var(--glass);border:1px solid var(--border);border-radius:16px;padding:28px}
+  .settings-card h3{font-size:15px;font-weight:700;margin-bottom:20px;padding-bottom:14px;border-bottom:1px solid var(--border)}
+  .setting-row{display:flex;align-items:center;justify-content:space-between;padding:13px 0;border-bottom:1px solid var(--border)}
+  .setting-row:last-child{border-bottom:none;padding-bottom:0}
+  .setting-label{font-size:14px;font-weight:500}
+  .setting-sub{font-size:12px;color:var(--muted);margin-top:2px}
+  .toggle{position:relative;width:44px;height:24px;background:rgba(255,255,255,0.08);border-radius:12px;cursor:pointer;transition:background .25s;flex-shrink:0}
+  .toggle.on{background:var(--teal)}
+  .toggle::after{content:'';position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:left .25s}
+  .toggle.on::after{left:23px}
+
+  /* ── MODAL ── */
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9999;display:none;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+  .overlay.open{display:flex}
+  .modal{background:#0f1120;border:1px solid var(--border);border-radius:22px;padding:36px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto}
+  .modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:28px}
+  .modal-header h3{font-size:18px;font-weight:700}
+  .modal-close{background:none;border:none;color:var(--muted);cursor:pointer;font-size:24px;line-height:1;transition:color .2s}
+  .modal-close:hover{color:var(--text)}
+
+  /* SCROLLBAR */
+  ::-webkit-scrollbar{width:5px;height:5px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.08);border-radius:3px}
+  ::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,0.15)}
+</style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+
+<!-- ═══════════════════════════════════════════
+     LOGIN PAGE
+═══════════════════════════════════════════ -->
+<div id="login-page">
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-logo">
+        <div class="logo-mark">R</div>
+        <span>Rovio <span class="grad-text">AI</span></span>
+      </div>
+      <h2>Client Portal</h2>
+      <p class="subtitle">Sign in to access your CRM dashboard</p>
+
+      <div class="form-group">
+        <label>Username</label>
+        <input type="text" id="l-user" placeholder="admin" autocomplete="username">
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="l-pass" placeholder="••••••••" autocomplete="current-password"
+          onkeydown="if(event.key==='Enter')doLogin()">
+      </div>
+      <button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="doLogin()">Sign In →</button>
+      <div class="login-err" id="l-err">⚠ Incorrect username or password.</div>
+    </div>
+    <a href="index.html" class="back-link" style="display:block;text-align:center;margin-top:18px">← Back to rovioai.com</a>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     CRM APP
+═══════════════════════════════════════════ -->
+<div id="crm-app">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">
+        <div class="logo-mark" style="width:34px;height:34px;border-radius:9px;font-size:16px">R</div>
+        <div>
+          <div class="name">Rovio AI</div>
+          <span class="badge">CRM</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:1;overflow-y:auto;padding:12px">
+      <div class="sidebar-section">Main</div>
+      <button class="nav-item active" onclick="nav('dashboard',this)">
+        <span class="nav-icon">📊</span>Dashboard
+      </button>
+      <button class="nav-item" onclick="nav('contacts',this)">
+        <span class="nav-icon">👥</span>Contacts
+        <span class="nav-badge" id="nb-contacts">0</span>
+      </button>
+      <button class="nav-item" onclick="nav('pipeline',this)">
+        <span class="nav-icon">🔀</span>Pipeline
+      </button>
+
+      <div class="sidebar-section">Tools</div>
+      <button class="nav-item" onclick="nav('notes',this)">
+        <span class="nav-icon">📝</span>Notes
+      </button>
+      <button class="nav-item" onclick="nav('settings',this)">
+        <span class="nav-icon">⚙️</span>Settings
+      </button>
+
+      <div class="sidebar-section">External</div>
+      <a href="index.html" class="nav-item" style="text-decoration:none">
+        <span class="nav-icon">🌐</span>Public Site
+      </a>
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="user-row">
+        <div class="user-av">T</div>
+        <div>
+          <div class="user-name">Tony Greco</div>
+          <div class="user-role">Owner / Admin</div>
+        </div>
+        <button class="logout-btn" onclick="doLogout()" title="Sign out">↩</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN AREA -->
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar-title" id="page-title">Dashboard</div>
+      <div class="topbar-search">
+        <span style="color:var(--muted);font-size:14px">🔍</span>
+        <input type="text" placeholder="Search contacts..." oninput="globalSearch(this.value)">
+      </div>
+      <div class="notif-btn" id="notif-btn" title="New web form leads">
+        🔔<div class="notif-dot" id="notif-dot" style="display:none"></div>
+      </div>
+      <button class="btn btn-primary btn-sm" id="top-action" onclick="openAddContact()">+ Add Contact</button>
+    </div>
+
+    <div class="content">
+
+      <!-- ── DASHBOARD ── -->
+      <div class="panel active" id="panel-dashboard">
+        <div class="kpi-grid">
+          <div class="kpi"><div class="kpi-label">Total Contacts</div><div class="kpi-val" id="k-total">0</div><div class="kpi-sub up" id="k-total-sub"></div><div class="kpi-icon">👥</div></div>
+          <div class="kpi"><div class="kpi-label">New Leads</div><div class="kpi-val" id="k-leads">0</div><div class="kpi-sub up">This month</div><div class="kpi-icon">🎯</div></div>
+          <div class="kpi"><div class="kpi-label">Active Clients</div><div class="kpi-val" id="k-clients">0</div><div class="kpi-sub up">Paying clients</div><div class="kpi-icon">🤝</div></div>
+          <div class="kpi"><div class="kpi-label">Pipeline Value</div><div class="kpi-val" id="k-value">$0</div><div class="kpi-sub up">Open deals</div><div class="kpi-icon">💰</div></div>
+        </div>
+
+        <!-- NEW LEADS ALERT (web form) -->
+        <div id="new-leads-alert" style="display:none;background:rgba(0,212,170,0.07);border:1px solid rgba(0,212,170,0.2);border-radius:14px;padding:16px 20px;margin-bottom:20px;display:none;align-items:center;gap:14px">
+          <span style="font-size:24px">⚡</span>
+          <div>
+            <div style="font-size:14px;font-weight:700;color:var(--teal)" id="new-leads-text">New leads from website</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:2px">Web form submissions have been automatically added to your contacts.</div>
+          </div>
+          <button class="btn-ghost" style="margin-left:auto;flex-shrink:0" onclick="nav('contacts',document.querySelectorAll('.nav-item')[1]);markAllSeen()">View Leads →</button>
+        </div>
+
+        <div class="dash-cols">
+          <div class="card">
+            <div class="card-title">
+              Recent Activity
+              <span style="font-size:11px;color:var(--muted);font-weight:400">Auto-updated from web form</span>
+            </div>
+            <div id="activity-feed">
+              <div style="color:var(--muted);font-size:13px;text-align:center;padding:24px">No activity yet.</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Pipeline Overview</div>
+            <div id="pipe-mini"></div>
+            <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
+              <div style="font-size:11px;color:var(--muted);margin-bottom:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Lead Sources</div>
+              <div id="source-breakdown"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── CONTACTS ── -->
+      <div class="panel" id="panel-contacts">
+        <div class="table-toolbar">
+          <div class="search-wrap">
+            <span style="color:var(--muted);font-size:14px">🔍</span>
+            <input type="text" id="ct-search" placeholder="Search contacts..." oninput="renderTable()">
+          </div>
+          <div class="filter-wrap">
+            <select class="filter-sel" id="ct-status" onchange="renderTable()">
+              <option value="">All Status</option>
+              <option>Lead</option><option>Prospect</option><option>Client</option><option>Inactive</option>
+            </select>
+            <select class="filter-sel" id="ct-source" onchange="renderTable()">
+              <option value="">All Sources</option>
+              <option>Web Form</option><option>Direct</option><option>Referral</option>
+            </select>
+            <button class="btn btn-primary btn-sm" onclick="openAddContact()">+ Add Contact</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th><th>Company</th><th>Email</th>
+                <th>Service</th><th>Source</th><th>Status</th><th>Value</th><th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="ct-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── PIPELINE ── -->
+      <div class="panel" id="panel-pipeline">
+        <div class="board" id="board"></div>
+      </div>
+
+      <!-- ── NOTES ── -->
+      <div class="panel" id="panel-notes">
+        <div style="display:flex;justify-content:flex-end;margin-bottom:14px">
+          <button class="btn btn-primary btn-sm" onclick="newNote()">+ New Note</button>
+        </div>
+        <div class="notes-layout">
+          <div class="notes-sidebar" id="notes-list"></div>
+          <div class="note-editor">
+            <input type="text" id="note-title" placeholder="Note title..." oninput="schedSave()">
+            <textarea id="note-body" placeholder="Start writing..." oninput="schedSave()"></textarea>
+            <div class="note-toolbar">
+              <span class="note-saved" id="note-saved">Auto-saved</span>
+              <button class="btn-danger" onclick="delNote()">🗑 Delete</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── SETTINGS ── -->
+      <div class="panel" id="panel-settings">
+        <div class="settings-grid">
+          <div class="settings-card">
+            <h3>Account Settings</h3>
+            <div class="form-group"><label>Business Name</label><input type="text" value="Rovio AI"></div>
+            <div class="form-group"><label>Admin Email</label><input type="email" value="hello@rovioai.com"></div>
+            <div class="form-group"><label>Phone</label><input type="tel" value="(555) 000-0000"></div>
+            <button class="btn btn-primary btn-sm" onclick="alert('Settings saved!')">Save Changes</button>
+          </div>
+          <div class="settings-card">
+            <h3>Notifications</h3>
+            <div class="setting-row">
+              <div><div class="setting-label">Web Form Lead Alert</div><div class="setting-sub">Highlight new leads from website</div></div>
+              <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+            </div>
+            <div class="setting-row">
+              <div><div class="setting-label">Weekly Summary</div><div class="setting-sub">Monday morning CRM report</div></div>
+              <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+            </div>
+            <div class="setting-row">
+              <div><div class="setting-label">Pipeline Updates</div><div class="setting-sub">Alert when status changes</div></div>
+              <div class="toggle" onclick="this.classList.toggle('on')"></div>
+            </div>
+          </div>
+          <div class="settings-card">
+            <h3>Change Password</h3>
+            <div class="form-group"><label>Current Password</label><input type="password" id="s-cur" placeholder="••••••••"></div>
+            <div class="form-group"><label>New Password</label><input type="password" id="s-new" placeholder="••••••••"></div>
+            <div class="form-group"><label>Confirm New Password</label><input type="password" id="s-con" placeholder="••••••••"></div>
+            <button class="btn btn-primary btn-sm" onclick="changePassword()">Update Password</button>
+            <div id="pw-msg" style="font-size:13px;margin-top:10px;display:none"></div>
+          </div>
+          <div class="settings-card">
+            <h3>Data Management</h3>
+            <div class="setting-row">
+              <div><div class="setting-label">Export Contacts (CSV)</div><div class="setting-sub">Download all contacts</div></div>
+              <button class="btn-ghost" onclick="exportCSV()">⬇ Export</button>
+            </div>
+            <div class="setting-row">
+              <div><div class="setting-label">Mark All Leads Seen</div><div class="setting-sub">Clear new-lead notifications</div></div>
+              <button class="btn-ghost" onclick="markAllSeen();alert('All marked as seen.')">✓ Mark Seen</button>
+            </div>
+            <div class="setting-row">
+              <div><div class="setting-label">Clear All Data</div><div class="setting-sub">Remove contacts &amp; notes</div></div>
+              <button class="btn-danger" onclick="clearAll()">🗑 Clear</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </div><!-- /main -->
+</div><!-- /crm-app -->
+
+<!-- ADD / EDIT CONTACT MODAL -->
+<div class="overlay" id="contact-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-title">Add Contact</h3>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>First Name *</label><input type="text" id="m-fname" placeholder="John"></div>
+      <div class="form-group"><label>Last Name</label><input type="text" id="m-lname" placeholder="Smith"></div>
+    </div>
+    <div class="form-group"><label>Email *</label><input type="email" id="m-email" placeholder="john@company.com"></div>
+    <div class="form-group"><label>Phone</label><input type="tel" id="m-phone" placeholder="(555) 000-0000"></div>
+    <div class="form-group"><label>Company</label><input type="text" id="m-company" placeholder="Acme Corp"></div>
+    <div class="form-group">
+      <label>Service Interest</label>
+      <select id="m-service">
+        <option>AI Consulting</option>
+        <option>AI Automations</option>
+        <option>AI Integration &amp; Coaching</option>
+        <option>Multiple Services</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Status</label>
+        <select id="m-status">
+          <option>Lead</option><option>Prospect</option><option>Client</option><option>Inactive</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Deal Value ($)</label>
+        <input type="number" id="m-value" placeholder="5000" min="0">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Source</label>
+      <select id="m-source">
+        <option>Direct</option><option>Web Form</option><option>Referral</option><option>LinkedIn</option><option>Other</option>
+      </select>
+    </div>
+    <div class="form-group"><label>Notes</label><textarea id="m-notes" placeholder="Any notes..."></textarea></div>
+    <input type="hidden" id="m-id">
+    <button class="btn btn-primary" style="width:100%" onclick="saveContact()">Save Contact</button>
+  </div>
+</div>
+
+<script>
+/* ── CANVAS ── */
+(function(){
+  const c=document.getElementById('bg-canvas'),ctx=c.getContext('2d');
+  let W,H,P=[];
+  function r(){W=c.width=innerWidth;H=c.height=innerHeight;}
+  r();window.addEventListener('resize',r);
+  for(let i=0;i<50;i++)P.push({x:Math.random()*2000,y:Math.random()*1200,r:Math.random()*1.5+.5,vx:(Math.random()-.5)*.25,vy:(Math.random()-.5)*.25,o:Math.random()*.4+.1});
+  function draw(){ctx.clearRect(0,0,W,H);P.forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fillStyle=`rgba(0,212,170,${p.o})`;ctx.fill();p.x+=p.vx;p.y+=p.vy;if(p.x<0)p.x=W;if(p.x>W)p.x=0;if(p.y<0)p.y=H;if(p.y>H)p.y=0;});requestAnimationFrame(draw);}
+  draw();
+})();
+
+/* ══════════════════════════════
+   AUTH
+══════════════════════════════ */
+// Credentials stored — in production use a real backend with hashed passwords
+const CREDS = { user:'admin', pass:'rovioai2025' };
+
+function doLogin(){
+  const u=document.getElementById('l-user').value.trim();
+  const p=document.getElementById('l-pass').value;
+  if(u===CREDS.user && p===CREDS.pass){
+    sessionStorage.setItem('crm_auth','1'); // sessionStorage = cleared on tab close
+    document.getElementById('l-err').classList.remove('show');
+    bootCRM();
+  } else {
+    document.getElementById('l-err').classList.add('show');
+    document.getElementById('l-pass').value='';
+    document.getElementById('l-pass').focus();
+  }
+}
+
+function doLogout(){
+  sessionStorage.removeItem('crm_auth');
+  document.getElementById('crm-app').style.display='none';
+  document.getElementById('login-page').style.display='flex';
+  document.getElementById('l-user').value='';
+  document.getElementById('l-pass').value='';
+}
+
+function changePassword(){
+  const cur=document.getElementById('s-cur').value;
+  const nw=document.getElementById('s-new').value;
+  const cn=document.getElementById('s-con').value;
+  const msg=document.getElementById('pw-msg');
+  if(cur!==CREDS.pass){msg.style.display='block';msg.style.color='#f87171';msg.textContent='Current password is incorrect.';return;}
+  if(nw.length<6){msg.style.display='block';msg.style.color='#f87171';msg.textContent='New password must be at least 6 characters.';return;}
+  if(nw!==cn){msg.style.display='block';msg.style.color='#f87171';msg.textContent='Passwords do not match.';return;}
+  CREDS.pass=nw;
+  msg.style.display='block';msg.style.color='var(--teal)';msg.textContent='✓ Password updated successfully.';
+  ['s-cur','s-new','s-con'].forEach(id=>document.getElementById(id).value='');
+}
+
+/* Boot */
+window.addEventListener('DOMContentLoaded',()=>{
+  if(sessionStorage.getItem('crm_auth')==='1'){
+    bootCRM();
+  } else {
+    document.getElementById('login-page').style.display='flex';
+    document.getElementById('crm-app').style.display='none';
+    document.getElementById('l-user').focus();
+  }
+});
+
+function bootCRM(){
+  document.getElementById('login-page').style.display='none';
+  document.getElementById('crm-app').style.display='flex';
+  seedIfEmpty();
+  refreshAll();
+}
+
+/* ══════════════════════════════
+   DATA
+══════════════════════════════ */
+const SAMPLE_CONTACTS=[
+  {id:1001,fname:'Michael',lname:'Torres',email:'m.torres@apexcorp.com',phone:'(555)210-3321',company:'Apex Corp',service:'AI Consulting',status:'Client',value:12000,source:'Direct',notes:'Long-term client. Started with consulting, expanded to full integration.',isNew:false,created:'Jan 5, 2025',createdISO:'2025-01-05T00:00:00Z'},
+  {id:1002,fname:'Rachel',lname:'Kim',email:'rkim@nexgen.io',phone:'(555)447-8821',company:'Nexgen Solutions',service:'AI Automations',status:'Client',value:8500,source:'Referral',notes:'Automation pipeline for customer support.',isNew:false,created:'Jan 18, 2025',createdISO:'2025-01-18T00:00:00Z'},
+  {id:1003,fname:'James',lname:'Okafor',email:'jokafor@meridian.com',phone:'(555)993-2201',company:'Meridian Group',service:'AI Integration & Coaching',status:'Prospect',value:6000,source:'Direct',notes:'Follow up scheduled.',isNew:false,created:'Feb 2, 2025',createdISO:'2025-02-02T00:00:00Z'},
+  {id:1004,fname:'Priya',lname:'Nair',email:'p.nair@veritas.co',phone:'(555)334-9902',company:'Veritas',service:'AI Consulting',status:'Lead',value:3500,source:'Referral',notes:'Initial call booked.',isNew:false,created:'Feb 14, 2025',createdISO:'2025-02-14T00:00:00Z'},
+  {id:1005,fname:'David',lname:'Lee',email:'dlee@stratum.ai',phone:'(555)678-4412',company:'Stratum AI',service:'AI Automations',status:'Prospect',value:9000,source:'LinkedIn',notes:'Interested in sales outreach automation.',isNew:false,created:'Mar 1, 2025',createdISO:'2025-03-01T00:00:00Z'},
+];
+
+function seedIfEmpty(){
+  if(!localStorage.getItem('rovio_seeded')){
+    localStorage.setItem('rovio_contacts',JSON.stringify(SAMPLE_CONTACTS));
+    localStorage.setItem('rovio_seeded','1');
+  }
+}
+function getContacts(){ return JSON.parse(localStorage.getItem('rovio_contacts')||'[]'); }
+function setContacts(c){ localStorage.setItem('rovio_contacts',JSON.stringify(c)); }
+function getActivity(){ return JSON.parse(localStorage.getItem('rovio_activity')||'[]'); }
+function getNotes(){ return JSON.parse(localStorage.getItem('rovio_notes')||'[]'); }
+function setNotes(n){ localStorage.setItem('rovio_notes',JSON.stringify(n)); }
+
+/* ══════════════════════════════
+   NAVIGATION
+══════════════════════════════ */
+const titles={dashboard:'Dashboard',contacts:'Contacts',pipeline:'Pipeline',notes:'Notes',settings:'Settings'};
+const actions={dashboard:'+ Add Contact',contacts:'+ Add Contact',pipeline:'+ Add Contact',notes:'+ New Note',settings:''};
+const actionFns={dashboard:openAddContact,contacts:openAddContact,pipeline:openAddContact,notes:newNote,settings:()=>{}};
+
+function nav(id,btn){
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
+  document.getElementById('panel-'+id).classList.add('active');
+  if(btn)btn.classList.add('active');
+  document.getElementById('page-title').textContent=titles[id]||id;
+  const ab=document.getElementById('top-action');
+  const label=actions[id]||'';
+  ab.textContent=label; ab.style.display=label?'':'none';
+  ab.onclick=actionFns[id]||openAddContact;
+  if(id==='pipeline')renderBoard();
+  if(id==='notes')renderNotes();
+  if(id==='contacts')renderTable();
+  if(id==='dashboard')renderDash();
+}
+
+/* ══════════════════════════════
+   DASHBOARD
+══════════════════════════════ */
+function renderDash(){
+  const c=getContacts();
+  const leads=c.filter(x=>x.status==='Lead');
+  const clients=c.filter(x=>x.status==='Client');
+  const val=c.reduce((a,x)=>a+(Number(x.value)||0),0);
+  const newFromWeb=c.filter(x=>x.isNew&&x.source==='Web Form');
+
+  document.getElementById('k-total').textContent=c.length;
+  document.getElementById('k-leads').textContent=leads.length;
+  document.getElementById('k-clients').textContent=clients.length;
+  document.getElementById('k-value').textContent='$'+val.toLocaleString();
+  document.getElementById('nb-contacts').textContent=c.length;
+
+  // New leads alert
+  const alert=document.getElementById('new-leads-alert');
+  if(newFromWeb.length>0){
+    alert.style.display='flex';
+    document.getElementById('new-leads-text').textContent=`${newFromWeb.length} new lead${newFromWeb.length>1?'s':''} from website form`;
+    document.getElementById('notif-dot').style.display='block';
+  } else {
+    alert.style.display='none';
+    document.getElementById('notif-dot').style.display='none';
+  }
+
+  // Activity feed
+  const activity=getActivity();
+  const recent=activity.slice(0,6);
+  const feedEl=document.getElementById('activity-feed');
+  if(recent.length){
+    feedEl.innerHTML=recent.map(a=>`
+      <div class="activity-item">
+        <div class="act-icon ${a.type==='web_form'?'act-web':'act-manual'}">${a.type==='web_form'?'🌐':'✏️'}</div>
+        <div>
+          <div class="act-text">
+            <strong>${a.name}</strong>${a.company?' — '+a.company:''}
+            <span class="act-source ${a.type==='web_form'?'src-web':a.source==='Referral'?'src-referral':'src-manual'}">
+              ${a.type==='web_form'?'Web Form':a.source||'Manual'}
+            </span>
+          </div>
+          <div class="act-meta">${a.time}</div>
+        </div>
+      </div>`).join('');
+  } else {
+    // Fall back to contacts
+    const recent5=c.slice(-5).reverse();
+    feedEl.innerHTML=recent5.length?recent5.map(x=>`
+      <div class="activity-item">
+        <div class="act-icon ${x.source==='Web Form'?'act-web':'act-manual'}">${x.source==='Web Form'?'🌐':'✏️'}</div>
+        <div>
+          <div class="act-text"><strong>${x.fname} ${x.lname}</strong> — ${x.company||x.service}
+            <span class="act-source ${x.source==='Web Form'?'src-web':x.source==='Referral'?'src-referral':'src-manual'}">${x.source||'Direct'}</span>
+          </div>
+          <div class="act-meta">${x.created}</div>
+        </div>
+      </div>`).join(''):'<div style="color:var(--muted);font-size:13px;text-align:center;padding:20px">No activity yet.</div>';
+  }
+
+  // Pipeline mini
+  const stages=[{l:'Lead',k:'Lead'},{l:'Prospect',k:'Prospect'},{l:'Client',k:'Client'},{l:'Inactive',k:'Inactive'}];
+  const max=Math.max(1,...stages.map(s=>c.filter(x=>x.status===s.k).length));
+  document.getElementById('pipe-mini').innerHTML=stages.map(s=>{
+    const n=c.filter(x=>x.status===s.k).length;
+    return `<div class="pipe-mini-row"><div class="pipe-mini-label">${s.l}</div><div class="pipe-bar"><div class="pipe-fill" style="width:${(n/max*100).toFixed(0)}%"></div></div><div class="pipe-mini-count">${n}</div></div>`;
+  }).join('');
+
+  // Source breakdown
+  const sources={};
+  c.forEach(x=>{const s=x.source||'Direct';sources[s]=(sources[s]||0)+1;});
+  const srcMax=Math.max(1,...Object.values(sources));
+  document.getElementById('source-breakdown').innerHTML=Object.entries(sources).map(([s,n])=>`
+    <div class="pipe-mini-row"><div class="pipe-mini-label">${s}</div><div class="pipe-bar"><div class="pipe-fill" style="width:${(n/srcMax*100).toFixed(0)}%;background:${s==='Web Form'?'var(--grad)':s==='Referral'?'linear-gradient(135deg,#6366f1,#3b82f6)':'linear-gradient(135deg,#3b82f6,#00d4aa)'}"></div></div><div class="pipe-mini-count">${n}</div></div>`).join('');
+}
+
+function markAllSeen(){
+  const c=getContacts().map(x=>({...x,isNew:false}));
+  setContacts(c);
+  document.getElementById('new-leads-alert').style.display='none';
+  document.getElementById('notif-dot').style.display='none';
+}
+
+/* ══════════════════════════════
+   CONTACTS TABLE
+══════════════════════════════ */
+const pillClass={Lead:'p-lead',Prospect:'p-prospect',Client:'p-client',Inactive:'p-inactive'};
+
+function renderTable(){
+  const q=(document.getElementById('ct-search')||{}).value?.toLowerCase()||'';
+  const sf=(document.getElementById('ct-status')||{}).value||'';
+  const src=(document.getElementById('ct-source')||{}).value||'';
+  let contacts=getContacts();
+  if(q)contacts=contacts.filter(c=>`${c.fname} ${c.lname} ${c.email} ${c.company||''}`.toLowerCase().includes(q));
+  if(sf)contacts=contacts.filter(c=>c.status===sf);
+  if(src)contacts=contacts.filter(c=>c.source===src);
+  const tbody=document.getElementById('ct-tbody');
+  if(!contacts.length){tbody.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:40px">No contacts found.</td></tr>';return;}
+  tbody.innerHTML=contacts.map(c=>`
+    <tr>
+      <td><strong>${c.fname} ${c.lname}</strong>${c.isNew?'<span class="new-badge">NEW</span>':''}</td>
+      <td style="color:var(--muted)">${c.company||'—'}</td>
+      <td style="color:var(--muted);font-size:13px">${c.email}</td>
+      <td style="font-size:13px;color:var(--muted)">${c.service||'—'}</td>
+      <td><span class="act-source ${c.source==='Web Form'?'src-web':c.source==='Referral'?'src-referral':'src-manual'}">${c.source||'Direct'}</span></td>
+      <td><span class="pill ${pillClass[c.status]||'p-lead'}">${c.status}</span></td>
+      <td style="color:var(--teal);font-weight:700">${c.value?'$'+Number(c.value).toLocaleString():'—'}</td>
+      <td><div class="row-actions">
+        <button class="ia" onclick="editContact(${c.id})" title="Edit">✏️</button>
+        <button class="ia del" onclick="delContact(${c.id})" title="Delete">🗑</button>
+      </div></td>
+    </tr>`).join('');
+}
+
+function globalSearch(q){
+  nav('contacts',document.querySelectorAll('.nav-item')[1]);
+  document.getElementById('ct-search').value=q;
+  renderTable();
+}
+
+/* ══════════════════════════════
+   ADD / EDIT CONTACT
+══════════════════════════════ */
+function openAddContact(){
+  document.getElementById('modal-title').textContent='Add Contact';
+  ['m-fname','m-lname','m-email','m-phone','m-company','m-notes'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('m-service').value='AI Consulting';
+  document.getElementById('m-status').value='Lead';
+  document.getElementById('m-source').value='Direct';
+  document.getElementById('m-value').value='';
+  document.getElementById('m-id').value='';
+  document.getElementById('contact-overlay').classList.add('open');
+  setTimeout(()=>document.getElementById('m-fname').focus(),100);
+}
+
+function editContact(id){
+  const c=getContacts().find(x=>x.id===id);
+  if(!c)return;
+  document.getElementById('modal-title').textContent='Edit Contact';
+  document.getElementById('m-fname').value=c.fname||'';
+  document.getElementById('m-lname').value=c.lname||'';
+  document.getElementById('m-email').value=c.email||'';
+  document.getElementById('m-phone').value=c.phone||'';
+  document.getElementById('m-company').value=c.company||'';
+  document.getElementById('m-service').value=c.service||'AI Consulting';
+  document.getElementById('m-status').value=c.status||'Lead';
+  document.getElementById('m-source').value=c.source||'Direct';
+  document.getElementById('m-value').value=c.value||'';
+  document.getElementById('m-notes').value=c.notes||'';
+  document.getElementById('m-id').value=c.id;
+  document.getElementById('contact-overlay').classList.add('open');
+}
+
+function saveContact(){
+  const v=id=>document.getElementById(id).value.trim();
+  if(!v('m-fname')||!v('m-email')){alert('First name and email are required.');return;}
+  let contacts=getContacts();
+  const eid=document.getElementById('m-id').value;
+  const obj={fname:v('m-fname'),lname:v('m-lname'),email:v('m-email'),phone:v('m-phone'),company:v('m-company'),service:v('m-service'),status:v('m-status'),source:v('m-source'),value:Number(v('m-value'))||0,notes:v('m-notes'),isNew:false,created:new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}),createdISO:new Date().toISOString()};
+  if(eid){
+    contacts=contacts.map(c=>c.id===Number(eid)?{...c,...obj}:c);
+  } else {
+    const activity=getActivity();
+    activity.unshift({type:'manual',name:`${obj.fname} ${obj.lname}`,company:obj.company,source:obj.source,time:new Date().toLocaleString()});
+    localStorage.setItem('rovio_activity',JSON.stringify(activity.slice(0,50)));
+    contacts.push({id:Date.now(),...obj});
+  }
+  setContacts(contacts);
+  closeModal();
+  refreshAll();
+}
+
+function delContact(id){
+  if(!confirm('Delete this contact?'))return;
+  setContacts(getContacts().filter(c=>c.id!==id));
+  refreshAll();
+}
+function closeModal(){ document.getElementById('contact-overlay').classList.remove('open'); }
+document.getElementById('contact-overlay').addEventListener('click',e=>{if(e.target===e.currentTarget)closeModal();});
+
+/* ══════════════════════════════
+   PIPELINE BOARD
+══════════════════════════════ */
+const STAGES=[
+  {id:'Lead',label:'Lead',color:'#3b82f6'},
+  {id:'Prospect',label:'Prospect',color:'#f59e0b'},
+  {id:'Client',label:'Closed Won',color:'#00d4aa'},
+  {id:'Inactive',label:'Inactive',color:'#64748b'},
+];
+function renderBoard(){
+  const contacts=getContacts();
+  document.getElementById('board').innerHTML=STAGES.map(s=>{
+    const cards=contacts.filter(c=>c.status===s.id);
+    const stageVal=cards.reduce((a,c)=>a+(Number(c.value)||0),0);
+    return `<div class="board-col">
+      <div class="col-head" style="background:${s.color}1a;color:${s.color}">
+        <span>${s.label}</span><span style="background:${s.color}33;padding:2px 9px;border-radius:20px">${cards.length}</span>
+      </div>
+      <div class="col-body">
+        ${stageVal?`<div style="font-size:11px;color:${s.color};font-weight:700;margin-bottom:4px;padding:6px 0">$${stageVal.toLocaleString()} total</div>`:''}
+        ${cards.map(c=>`
+          <div class="board-card">
+            <div class="bc-name">${c.fname} ${c.lname}${c.isNew?'<span class="new-badge">NEW</span>':''}</div>
+            <div class="bc-co">${c.company||''}</div>
+            <div style="font-size:11px;color:var(--muted)">${c.service||''}</div>
+            ${c.value?`<div class="bc-val">$${Number(c.value).toLocaleString()}</div>`:''}
+            <div class="bc-src"><span class="act-source ${c.source==='Web Form'?'src-web':c.source==='Referral'?'src-referral':'src-manual'}">${c.source||'Direct'}</span></div>
+          </div>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ══════════════════════════════
+   NOTES
+══════════════════════════════ */
+let curNote=null, saveTimer=null;
+function renderNotes(){
+  const notes=getNotes();
+  const list=document.getElementById('notes-list');
+  list.innerHTML=notes.map(n=>`
+    <div class="note-item${curNote===n.id?' sel':''}" onclick="selectNote(${n.id})">
+      <div class="note-item-title">${n.title||'Untitled'}</div>
+      <div class="note-item-preview">${n.body||'No content yet...'}</div>
+      <div class="note-item-meta">${n.updated||n.created}</div>
+    </div>`).join('')||'<div style="color:var(--muted);font-size:13px;padding:8px">No notes yet.</div>';
+  if(curNote){
+    const n=notes.find(x=>x.id===curNote);
+    if(n){document.getElementById('note-title').value=n.title||'';document.getElementById('note-body').value=n.body||'';}
+  }
+}
+function selectNote(id){
+  curNote=id;
+  const n=getNotes().find(x=>x.id===id);
+  if(!n)return;
+  document.getElementById('note-title').value=n.title||'';
+  document.getElementById('note-body').value=n.body||'';
+  renderNotes();
+  document.getElementById('note-title').focus();
+}
+function newNote(){
+  nav('notes',document.querySelectorAll('.nav-item')[3]);
+  const notes=getNotes();
+  const n={id:Date.now(),title:'New Note',body:'',created:new Date().toLocaleDateString(),updated:new Date().toLocaleDateString()};
+  notes.unshift(n);setNotes(notes);curNote=n.id;renderNotes();
+  setTimeout(()=>{document.getElementById('note-title').select();},50);
+}
+function schedSave(){
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(()=>{
+    if(!curNote)return;
+    let notes=getNotes();
+    notes=notes.map(n=>n.id===curNote?{...n,title:document.getElementById('note-title').value,body:document.getElementById('note-body').value,updated:new Date().toLocaleDateString()}:n);
+    setNotes(notes);renderNotes();
+    const el=document.getElementById('note-saved');
+    el.textContent='Saved ✓';el.style.color='var(--teal)';
+    setTimeout(()=>{el.textContent='Auto-saved';el.style.color='';},1500);
+  },500);
+}
+function delNote(){
+  if(!curNote||!confirm('Delete this note?'))return;
+  setNotes(getNotes().filter(n=>n.id!==curNote));
+  curNote=null;
+  document.getElementById('note-title').value='';
+  document.getElementById('note-body').value='';
+  renderNotes();
+}
+
+/* ══════════════════════════════
+   UTILITIES
+══════════════════════════════ */
+function refreshAll(){
+  renderDash();
+  renderTable();
+}
+
+function exportCSV(){
+  const c=getContacts();
+  const rows=[['First Name','Last Name','Email','Phone','Company','Service','Status','Source','Value','Created'],
+    ...c.map(x=>[x.fname,x.lname,x.email,x.phone||'',x.company||'',x.service||'',x.status,x.source||'',x.value||0,x.created||''])];
+  const csv=rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a=document.createElement('a');
+  a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+  a.download='rovio_contacts.csv';a.click();
+}
+
+function clearAll(){
+  if(!confirm('This will delete all contacts and notes. Are you sure?'))return;
+  localStorage.removeItem('rovio_contacts');
+  localStorage.removeItem('rovio_notes');
+  localStorage.removeItem('rovio_activity');
+  localStorage.removeItem('rovio_seeded');
+  seedIfEmpty();
+  curNote=null;
+  refreshAll();
+  renderNotes();
+  alert('All data cleared and sample data restored.');
+}
+
+// Poll for new web form submissions every 15 seconds
+setInterval(()=>{
+  if(sessionStorage.getItem('crm_auth')==='1'){
+    const newLeads=getContacts().filter(x=>x.isNew&&x.source==='Web Form');
+    const dot=document.getElementById('notif-dot');
+    if(dot)dot.style.display=newLeads.length?'block':'none';
+    const alert=document.getElementById('new-leads-alert');
+    if(alert&&newLeads.length){
+      alert.style.display='flex';
+      document.getElementById('new-leads-text').textContent=`${newLeads.length} new lead${newLeads.length>1?'s':''} from website form`;
+    }
+  }
+},15000);
+</script>
+</body>
+</html>
