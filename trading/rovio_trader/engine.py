@@ -30,11 +30,13 @@ def ts(x) -> pd.Timestamp:
 
 
 class Engine:
-    def __init__(self, cfg, store, brokers: dict, data, mode: str, earnings=None, calendar=None, notify=None, only=None, record_scanner=True):
+    def __init__(self, cfg, store, brokers: dict, data, mode: str, earnings=None, calendar=None, notify=None, only=None, record_scanner=True, watchlist=None):
         self.cfg, self.store, self.brokers, self.data, self.mode = cfg, store, brokers, data, mode
         self.earnings, self.calendar, self.notify = earnings, calendar, notify
         self.strategies = enabled_strategies(cfg, only)
         self.record_scanner = record_scanner
+        self.watchlist = watchlist            # optional editable watchlist (paper/live); None = use the config as is
+        self.watching: set = set()
         self.now: pd.Timestamp | None = None
         self.insts: dict = {}
         self.broker_ok: dict[str, bool] = {}
@@ -88,7 +90,12 @@ class Engine:
     # ------------------------------------------------------------------ instruments
     def _refresh_instruments(self):
         day = self.now.normalize()
-        if self._inst_day == day and self.insts:
+        changed = self.watchlist.apply() if self.watchlist is not None else False
+        if changed and self.insts:
+            self.log("watchlist", "watchlist changed: " + "; ".join(f"{k}: {', '.join(v[f]) or 'none'}" for k, v, f in (
+                ("stocks", self.cfg.markets.stock, "watchlist"), ("forex", self.cfg.markets.forex, "pairs"),
+                ("crypto", self.cfg.markets.crypto, "symbols"), ("futures", self.cfg.markets.futures, "roots"))))
+        if self._inst_day == day and self.insts and not changed:
             return
         self._inst_day = day
         m, problems, insts = self.cfg.markets, {}, {}
@@ -107,8 +114,10 @@ class Engine:
                     problems[s] = f"instrument lookup failed: {redact(e)}"
                     continue
                 if inst is None:
-                    problems[s] = f"not tradable at {b.key}"
+                    problems[s] = f"not found or not tradable at {b.key}"
                 else:
+                    if market == "stock":
+                        inst.is_etf = s in m.stock.etfs
                     insts[inst.symbol] = inst
         add("stock", m.stock.watchlist)
         add("forex", m.forex.pairs)
@@ -137,6 +146,18 @@ class Engine:
                                              f"exclusion window; new entries now use {cur.symbol} (expires {cur.expiry}, multiplier {cur.multiplier:g}, "
                                              f"tick {cur.tick_size:g} = ${cur.tick_value:g}, {cur.exchange})")
                     active[root] = cur.symbol
+        self.watching = set(insts)
+        # Keep managing anything already held or working, even if it was removed from the watchlist.
+        for row in self.store.q("SELECT DISTINCT symbol, broker FROM trades WHERE status!='closed' UNION SELECT DISTINCT symbol, broker FROM orders "
+                                "WHERE status IN ('created','uncertain','new','partially_filled','pending_cancel')"):
+            if row["symbol"] not in insts:
+                old = self.insts.get(row["symbol"])
+                try:
+                    old = old or (self.brokers[row["broker"]].instrument(row["symbol"]) if row["broker"] in self.brokers else None)
+                except (BrokerError, BrokerTimeout):
+                    old = None
+                if old is not None:
+                    insts[row["symbol"]] = old
         self.insts = insts
         self.store.set("active_contracts", active)
         self.store.set("instrument_problems", problems)
@@ -570,12 +591,12 @@ class Engine:
     def _scan(self):
         self._feed_errors = {}
         feeds = dict(self._get("feeds", {}))
-        scanner = dict(self._get("scanner", {})) if self.record_scanner else None
+        scanner = {k: v for k, v in self._get("scanner", {}).items() if v["symbol"] in self.watching} if self.record_scanner else None
         last_scan = dict(self._get("last_scan", {}))
         dirty = False
         for strat in self.strategies:
             for inst in list(self.insts.values()):
-                if not strat.applies(inst) or not self._tradable(inst):
+                if not strat.applies(inst) or not self._tradable(inst) or inst.symbol not in self.watching:
                     continue
                 df = self._bars(inst, strat.timeframe)
                 if df is None or not len(df):
@@ -609,6 +630,8 @@ class Engine:
                     with self.store.lock:
                         self.store.db.execute("INSERT INTO barcache(symbol,tf,updated,payload) VALUES(?,?,?,?) ON CONFLICT(symbol,tf) DO UPDATE SET "
                                               "updated=excluded.updated, payload=excluded.payload", (inst.symbol, strat.timeframe, iso(self.now), payload))
+        if scanner is not None and len(scanner) != len(self._get("scanner", {})):
+            dirty = True
         if dirty or self._feed_errors:
             self.store.set("last_scan", last_scan)
             self.store.set("feeds", feeds)
@@ -621,8 +644,8 @@ class Engine:
     def _process_signals(self):
         for sig in self.store.q("SELECT * FROM signals WHERE status='pending' ORDER BY time, id"):
             inst, strat = self.insts.get(sig["symbol"]), self._strategy(sig["strategy"])
-            if inst is None or strat is None:
-                self.store.update("signals", "id", sig["id"], status="skipped", decision="Instrument or strategy is no longer configured.")
+            if inst is None or strat is None or inst.symbol not in self.watching:
+                self.store.update("signals", "id", sig["id"], status="skipped", decision="Skipped: the symbol was removed from the watchlist (or the strategy was disabled).")
                 continue
             kind, why, checks = self._decide(sig, inst, strat)
             if kind == "wait":

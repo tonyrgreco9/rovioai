@@ -84,7 +84,7 @@ const pnl=x=>x==null?'–':`<span class="${x>=0?'pos':'neg'}">${x>=0?'+':'−'}$
 const tm=t=>t?t.slice(0,16).replace('T',' '):'–';
 const qty=x=>x==null?'–':Number(x).toLocaleString(undefined,{maximumFractionDigits:4});
 let S=null,tab='Decisions',selSig=null,chartSym=null,chartTf=null,chart=null,hover=-1,view=120,fails=0;
-const TABS=['Decisions','Positions & orders','Chart','Journal','Strategies','Health','Alerts'];
+const TABS=['Decisions','Watchlist','Positions & orders','Chart','Journal','Strategies','Health','Alerts'];
 function toast(m){const t=$('toast');t.textContent=m;t.style.display='block';clearTimeout(toast.h);toast.h=setTimeout(()=>t.style.display='none',6000)}
 async function api(p,b){const r=await fetch(p,b?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}:undefined);const j=await r.json().catch(()=>({error:'Bad response'}));if(!r.ok)throw new Error(j.error||r.statusText);return j}
 async function control(body,confirmText){if(confirmText&&!confirm(confirmText))return;try{const r=await api('/api/control',body);toast(r.note||'Done');await load()}catch(e){toast(e.message)}}
@@ -96,14 +96,15 @@ async function load(){
 function render(){
   const s=S,c=s.controls,p=s.portfolio,h=s.health;
   $('mode').className=['REPLAY','PAPER','LIVE'].includes(s.mode)?s.mode:'unknown';
-  $('modeText').textContent=s.mode==='REPLAY'?'REPLAY — simulated fills, scripted fixture prices':s.mode==='PAPER'?'PAPER — broker paper/practice accounts, no real money':s.mode==='LIVE'?'LIVE — REAL MONEY':'Mode: '+s.mode;
+  const idle=!s.health.heartbeat;$('modeText').textContent=s.mode==='REPLAY'?'REPLAY — simulated fills, scripted fixture prices':s.mode==='PAPER'?'PAPER — broker paper/practice accounts, no real money'+(idle?' · WORKER NOT STARTED':''):s.mode==='LIVE'?'LIVE — REAL MONEY':'Mode: '+s.mode;
   const qts=Object.values(p.quote_times||{}).sort().pop();
-  $('modeSub').textContent=`Data: ${s.data_label||'unknown'} · last quote ${tm(qts)} UTC · clock ${tm(s.now)} UTC`;
+  $('modeSub').textContent=idle&&s.mode!=='REPLAY'?'Nothing is being scanned or traded yet. Add broker paper keys to .env and run: python -m rovio_trader worker':`Data: ${s.data_label||'unknown'} · last quote ${tm(qts)} UTC · clock ${tm(s.now)} UTC`;
   $('brokers').innerHTML=Object.entries(s.brokers||{}).map(([k,b])=>`<span class="chip ${b.ok===false?'bad':''}" title="${esc(b.data)}">${esc(k)} · ${esc(b.mode)} · acct ${esc(b.account||'?')}${b.mode==='REPLAY'?' · simulated':b.verified?' · verified':' · not verified'}</span>`).join(' ')||'<span class="chip bad">no broker connected</span>';
   const halts=[c.kill&&'KILL SWITCH ON — working entries cancelled, no new entries; protective exits remain.',c.pause_entries&&'Entries paused — exits are still managed.',c.halt_daily,c.halt_drawdown,c.halt_protection].filter(Boolean);
   $('halts').innerHTML=halts.map(x=>`<div class="halt">⛔ ${esc(x)}</div>`).join('');
   $('bKill').textContent='Kill switch: '+(c.kill?'ON':'off');$('bKill').classList.toggle('on',c.kill);
   $('bPause').textContent=c.pause_entries?'Entries paused (resume)':'Pause entries';
+  for(const id of ['bPause','bKill','bFlat','bResume']){$(id).disabled=s.mode==='REPLAY';$(id).style.opacity=s.mode==='REPLAY'?.45:1;if(s.mode==='REPLAY')$(id).title='Not available in replay: it is a finished scripted run with no worker to act on controls.'}
   const markets=[...new Set(s.scanner.map(x=>x.market))],syms=new Set(s.scanner.map(x=>x.symbol));
   $('cWatch').textContent=`${syms.size} instruments`;
   $('cWatchSub').innerHTML=`${markets.join(', ')||'nothing yet'} · ${s.strategies.filter(x=>x.enabled).length} strategies<br>last scan ${tm(h.last_scan)} UTC`;
@@ -119,7 +120,7 @@ function render(){
   $('cHealth').innerHTML=bad.length?`<span class="neg">⚠ ${bad.length} issue${bad.length>1?'s':''}</span>`:'<span class="pos">✓ OK</span>';
   $('cHealthSub').innerHTML=(bad.length?esc(bad.join(' · '))+'<br>':'')+(s.mode==='REPLAY'?'Replay is a finished run; there is no live worker.':`worker heartbeat ${h.heartbeat_age_sec==null?'never':Math.round(h.heartbeat_age_sec)+'s ago'}`)+`<br>${s.alerts.length} alert(s)`;
   $('tabs').innerHTML=TABS.map(t=>`<button class="${t===tab?'act':''}" data-tab="${t}">${t}${t==='Alerts'&&s.alerts.length?' ('+s.alerts.length+')':''}</button>`).join('');
-  ({'Decisions':vDecisions,'Positions & orders':vPositions,'Chart':vChart,'Journal':vJournal,'Strategies':vStrategies,'Health':vHealth,'Alerts':vAlerts})[tab]();
+  ({'Decisions':vDecisions,'Watchlist':vWatchlist,'Positions & orders':vPositions,'Chart':vChart,'Journal':vJournal,'Strategies':vStrategies,'Health':vHealth,'Alerts':vAlerts})[tab]();
 }
 const checksTable=cs=>cs&&cs.length?`<table><thead><tr><th>Check</th><th class="n">Actual</th><th class="n">Threshold</th><th>Result</th></tr></thead><tbody>${cs.map(c=>`<tr><td>${esc(c.name)}</td><td class="n">${typeof c.value==='number'?px(c.value):esc(c.value??'–')}</td><td class="n">${typeof c.threshold==='number'?px(c.threshold):esc(c.threshold??'–')}</td><td>${c.passed?'<span class="pos">✓ pass</span>':'<span class="neg">✗ fail</span>'}</td></tr>`).join('')}</tbody></table>`:'<div class="muted">none recorded</div>';
 function sigDetail(x){
@@ -140,10 +141,23 @@ function vDecisions(){
   <h3 style="font-size:13px;margin:16px 0 6px">Scanner: latest check per instrument</h3>
   ${S.scanner.length?`<div class="scroll"><table><thead><tr><th>Symbol</th><th>Market</th><th>Strategy</th><th>Last completed bar (UTC)</th><th>Conditions on that bar</th></tr></thead><tbody>${S.scanner.map(x=>`<tr class="click" data-chart="${esc(x.symbol)}"><td><b>${esc(x.symbol)}</b></td><td>${esc(x.market)}</td><td>${esc(x.strategy)}</td><td>${tm(x.last_bar)}</td><td class="w">${x.checks.length?x.checks.map(c=>`${c.passed?'<span class="pos">✓</span>':'<span class="neg">✗</span>'} ${esc(c.name)}${typeof c.value==='number'?' ('+px(c.value)+' vs '+px(c.threshold)+')':''}`).join('<br>'):'<span class="muted">evaluated; details on signals only</span>'}</td></tr>`).join('')}</tbody></table></div>`:'<div class="state">The scanner has not run yet.</div>'}`;
 }
+function vWatchlist(){
+  const M={stock:['Stocks & ETFs','e.g. TSLA, BRK.B'],forex:['Forex pairs','e.g. AUD/USD (must include USD)'],crypto:['Crypto','e.g. ETH/USD'],futures:['Futures roots','MES or MNQ']};
+  const tag={watching:'<span class="pos">✓ watching</span>',problem:'<span class="neg">✗ problem</span>',pending:'<span class="tag t-pending">pending</span>',saved:'<span class="muted">saved</span>'};
+  const keep={};document.querySelectorAll('[data-wl-in]').forEach(i=>keep[i.dataset.wlIn]=i.value);
+  $('view').innerHTML=`<div class="sub" style="margin-bottom:8px">The symbols the scanner checks. One list is shared by the dashboard, the command line and the worker; the worker applies a change on its next cycle. Removing a symbol stops new entries in it; a position already open keeps being managed until it exits.${S.mode==='REPLAY'?' <b>You are viewing the replay, which is a fixed scripted run: edits here are saved for paper/live trading and do not change the replay.</b>':''}</div>`+
+  Object.entries(M).map(([m,[title,hint]])=>{const rows=S.watchlist.filter(x=>x.market===m),info=S.watchlist_markets[m];
+    return `<h3 style="font-size:13px;margin:14px 0 6px">${title} <span class="muted">· broker ${esc(info.broker)}${info.enabled?'':' · market disabled in config'}</span></h3>
+    <form data-wl-form="${m}" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px"><input data-wl-in="${m}" placeholder="${hint}" aria-label="Add ${title}" style="font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px 8px;min-width:220px">${m==='stock'?'<label class="sub"><input type="checkbox" data-wl-etf> ETF (skip earnings strategy)</label>':''}<button>Add</button></form>
+    ${rows.length?`<table><thead><tr><th>Symbol</th><th>Status</th><th>Detail</th><th></th></tr></thead><tbody>${rows.map(r=>`<tr><td><b>${esc(r.symbol)}</b>${r.etf?' <span class="muted">ETF</span>':''}${r.held?' <span class="tag t-pending">position open</span>':''}</td><td>${tag[r.status]||esc(r.status)}</td><td class="w">${esc(r.detail)}</td><td class="n"><button data-wl-rm="${esc(r.symbol)}" data-wl-m="${m}">Remove</button></td></tr>`).join('')}</tbody></table>`:'<div class="muted">Nothing on this list.</div>'}`}).join('');
+  document.querySelectorAll('[data-wl-in]').forEach(i=>{if(keep[i.dataset.wlIn])i.value=keep[i.dataset.wlIn]});
+}
+async function wl(body){try{const r=await api('/api/watchlist',body);toast(`${body.action==='add'?'Added':'Removed'} ${r.symbol}`);await load()}catch(e){toast(e.message)}}
+document.addEventListener('submit',e=>{const f=e.target.closest('[data-wl-form]');if(!f)return;e.preventDefault();const i=f.querySelector('input[data-wl-in]'),v=i.value.trim();if(!v)return;const etf=f.querySelector('[data-wl-etf]');i.value='';wl({action:'add',market:f.dataset.wlForm,symbol:v,etf:!!(etf&&etf.checked)})});
 function vPositions(){
   const P=S.positions,ext=S.health.external_positions;
   $('view').innerHTML=`<h3 style="font-size:13px;margin:0 0 6px">Open positions managed by the bot</h3>
-  ${P.length?`<div class="scroll"><table><thead><tr><th>#</th><th>Symbol</th><th>Strategy</th><th>Dir</th><th class="n">Qty</th><th class="n">Entry</th><th class="n">Mark</th><th class="n">Stop</th><th class="n">Target</th><th class="n">Unrealized</th><th class="n">Planned loss</th><th>Protection</th><th>State</th><th></th></tr></thead><tbody>${P.map(t=>`<tr><td>${t.id}</td><td><b>${esc(t.symbol)}</b></td><td>${esc(t.strategy)}</td><td>${t.side>0?'Long':'Short'}</td><td class="n">${qty(t.qty)}</td><td class="n">${px(t.entry_avg)}</td><td class="n">${px(t.mark)}</td><td class="n">${px(t.stop)}</td><td class="n">${px(t.target)}</td><td class="n">${pnl(t.unrealized)}</td><td class="n">${usd(t.open_risk)}</td><td>${t.protected?`<span class="pos">✓ stop for ${qty(t.stop_qty)}</span>`:t.status==='open'?'<span class="neg">✗ UNPROTECTED</span>':'<span class="muted">closing</span>'}</td><td>${esc(t.status)}${t.exit_reason?' — '+esc(t.exit_reason):''}</td><td><button data-flat="${t.id}">Flatten</button></td></tr>`).join('')}</tbody></table></div>`:'<div class="state">No open positions.</div>'}
+  ${P.length?`<div class="scroll"><table><thead><tr><th>#</th><th>Symbol</th><th>Strategy</th><th>Dir</th><th class="n">Qty</th><th class="n">Entry</th><th class="n">Mark</th><th class="n">Stop</th><th class="n">Target</th><th class="n">Unrealized</th><th class="n">Planned loss</th><th>Protection</th><th>State</th><th></th></tr></thead><tbody>${P.map(t=>`<tr><td>${t.id}</td><td><b>${esc(t.symbol)}</b></td><td>${esc(t.strategy)}</td><td>${t.side>0?'Long':'Short'}</td><td class="n">${qty(t.qty)}</td><td class="n">${px(t.entry_avg)}</td><td class="n">${px(t.mark)}</td><td class="n">${px(t.stop)}</td><td class="n">${px(t.target)}</td><td class="n">${pnl(t.unrealized)}</td><td class="n">${usd(t.open_risk)}</td><td>${t.protected?`<span class="pos">✓ stop for ${qty(t.stop_qty)}</span>`:t.status==='open'?'<span class="neg">✗ UNPROTECTED</span>':'<span class="muted">closing</span>'}</td><td>${esc(t.status)}${t.exit_reason?' — '+esc(t.exit_reason):''}</td><td><button data-flat="${t.id}"${S.mode==='REPLAY'?' disabled':''}>Flatten</button></td></tr>`).join('')}</tbody></table></div>`:'<div class="state">No open positions.</div>'}
   <h3 style="font-size:13px;margin:16px 0 6px">Holdings the bot did not open (never sold or flattened by the bot)</h3>
   ${ext.length?`<table><thead><tr><th>Broker</th><th>Symbol</th><th class="n">Qty</th><th>Effect</th></tr></thead><tbody>${ext.map(e=>`<tr><td>${esc(e.broker)}</td><td><b>${esc(e.symbol)}</b></td><td class="n">${qty(e.qty)}</td><td class="w">${esc(S.controls.paused_instruments[e.symbol]||'Not on the watchlist: ignored.')}</td></tr>`).join('')}</tbody></table>`:'<div class="muted">None detected.</div>'}
   <h3 style="font-size:13px;margin:16px 0 6px">Cash and margin by broker <span class="muted">(capital at one broker cannot fund orders at another)</span></h3>
@@ -238,7 +252,8 @@ function draw(){
   cv._g={i0,bw,N};
 }
 // ---------------- events
-document.addEventListener('click',e=>{const d=e.target.closest('[data-tab],[data-sig],[data-chart],[data-flat]');if(!d)return;const ds=d.dataset;
+document.addEventListener('click',e=>{const d=e.target.closest('[data-tab],[data-sig],[data-chart],[data-flat],[data-wl-rm]');if(!d)return;const ds=d.dataset;
+  if(ds.wlRm){return wl({action:'remove',market:ds.wlM,symbol:ds.wlRm})}
   if(ds.flat){e.stopPropagation();return control({action:'flatten',trade_ids:[+ds.flat]},`Close position #${ds.flat} at market? This sends a real order in PAPER/LIVE mode.`)}
   if(ds.chart){chartSym=ds.chart;tab='Chart';return render()}
   if(ds.tab){tab=ds.tab;return render()}
@@ -248,7 +263,7 @@ $('bPause').onclick=()=>control({action:'pause',on:!S.controls.pause_entries});
 $('bFlat').onclick=()=>control({action:'flatten'},'Close ALL positions the bot opened, at market? Holdings you opened yourself are not touched.');
 $('bResume').onclick=()=>control({action:'resume'},'Clear the drawdown / protection halt and allow new entries? The drawdown peak restarts from current equity.');
 addEventListener('resize',draw);
-load();setInterval(()=>{if(tab!=='Chart'||fails)load();else api('/api/state').then(s=>{S=s;fails=0}).catch(()=>{fails++})},5000);
+load();setInterval(()=>{const typing=document.activeElement&&document.activeElement.matches('input,select');if((tab!=='Chart'&&!typing)||fails)load();else api('/api/state').then(s=>{S=s;fails=0}).catch(()=>{fails++})},5000);
 </script>
 </body>
 </html>

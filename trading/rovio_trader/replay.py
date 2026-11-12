@@ -14,7 +14,7 @@ from .store import ACTIVE, Store
 U = lambda s: pd.Timestamp(s, tz="UTC")
 
 
-def run(db_path: str | Path, verbose: bool = True, extra_overrides: dict | None = None) -> dict:
+def run(db_path: str | Path, verbose: bool = True, extra_overrides: dict | None = None, until: str | None = None) -> dict:
     db_path = Path(db_path)
     for suffix in ("", "-wal", "-shm"):
         Path(str(db_path) + suffix).unlink(missing_ok=True)       # the replay database is rebuilt from scratch every run
@@ -46,7 +46,7 @@ def run(db_path: str | Path, verbose: bool = True, extra_overrides: dict | None 
         engine.log("restart", f"SIMULATED WORKER RESTART ({why}): in-memory state discarded, journal reopened")
         return engine
 
-    for t in world.timeline(F.START, F.END):
+    for t in world.timeline(F.START, U(until) if until else F.END):
         if t == U("2025-12-11 21:00"):
             engine.flatten()                    # explicit user action, requested while the stock market is closed
         world.advance(t)
@@ -69,6 +69,9 @@ def run(db_path: str | Path, verbose: bool = True, extra_overrides: dict | None 
         if t == U("2025-12-11 21:00"):
             seen["flatten_blocked"] = dict(store.get("exit_blocked", {}))
 
+    if until:                                   # partial run (used to review the dashboard mid-flight): no acceptance checks
+        store.close()
+        return {"checks": [], "ok": True, "db": str(db_path)}
     q, one = store.q, store.one
     closed = q("SELECT * FROM trades WHERE status='closed'")
     sig = lambda i: one("SELECT * FROM signals WHERE id LIKE ?", (i + "%",))

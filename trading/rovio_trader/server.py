@@ -17,6 +17,7 @@ from .brokers.unavailable import FIDELITY_STATUS, IBKR_STATUS
 from .config import STRATEGY_MARKET, STRATEGY_VERSION
 from .instruments import usd_per_quote
 from .store import Store
+from .watchlist import MARKETS, Watchlist
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 
@@ -75,7 +76,29 @@ def build_state(store: Store, cfg) -> dict:
                            "live_activated": [a for a in acts if a["strategy"] == name]})
     realized = store.one("SELECT COALESCE(SUM(realized-fees),0) v FROM trades")["v"]
     feeds = {k: {**v, "age_sec": age(v["last_bar"])} for k, v in (g("feeds", {}) or {}).items()}
+    wl = Watchlist(cfg).get()
+    problems, known, scanned, active = g("instrument_problems", {}) or {}, insts, g("scanner", {}) or {}, g("active_contracts", {}) or {}
+    last_bar = {}
+    for v in scanned.values():
+        last_bar[v["symbol"]] = max(last_bar.get(v["symbol"], ""), v["last_bar"])
+    rows = []
+    for m in MARKETS:
+        mcfg = cfg.markets[m]
+        for sym in wl[m]:
+            real = active.get(sym, sym) if m == "futures" else sym
+            if mode == "REPLAY":
+                st, detail = "saved", "Used by the paper/live worker. The replay is a fixed scripted run and does not use this list."
+            elif problems.get(sym) or problems.get(m):
+                st, detail = "problem", problems.get(sym) or problems.get(m)
+            elif real in known:
+                st = "watching"
+                detail = (f"contract {real}; " if m == "futures" else "") + (f"last completed bar {last_bar[real][:16].replace('T', ' ')} UTC" if real in last_bar else "no completed bar seen yet")
+            else:
+                st, detail = "pending", "Saved. The worker applies it on its next cycle" + ("" if hb else " (the worker is not running)") + "."
+            rows.append({"market": m, "symbol": sym, "broker": mcfg["broker"], "etf": m == "stock" and sym in wl["etfs"], "status": st, "detail": detail,
+                         "held": bool(store.one("SELECT 1 FROM trades WHERE status!='closed' AND symbol=?", (real,)))})
     return _clean({
+        "watchlist": rows, "watchlist_markets": {m: {"broker": cfg.markets[m]["broker"], "enabled": cfg.markets[m]["enabled"]} for m in MARKETS},
         "mode": mode, "now": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "data_label": g("data_label") or "; ".join(f"{k}: {b['data']}" for k, b in (g("brokers", {}) or {}).items()),
         "replay": g("replay"), "brokers": g("brokers", {}), "reconcile": g("reconcile", {}),
         "controls": {"kill": bool(g("kill")), "pause_entries": bool(g("pause_entries")), "halt_daily": g("halt_daily"), "halt_drawdown": g("halt_drawdown"),
@@ -176,6 +199,16 @@ def make_handler(db_path: str, cfg):
                 body = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 65536)) or b"{}")
             except ValueError:
                 return self._send(400, {"error": "Invalid JSON"})
+            if urlparse(self.path).path == "/api/watchlist":
+                def edit(s: Store):
+                    w = Watchlist(cfg)
+                    market, action = body.get("market"), body.get("action")
+                    if market not in MARKETS or action not in ("add", "remove"):
+                        raise ValueError("market must be stock, forex, crypto or futures; action must be add or remove")
+                    sym = w.add(market, str(body.get("symbol", "")), bool(body.get("etf"))) if action == "add" else w.remove(market, str(body.get("symbol", "")))
+                    s.event(pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%dT%H:%M:%SZ"), "INFO", "operator", f"watchlist: {action} {market} {sym}")
+                    return {"ok": True, "symbol": sym}
+                return self._guard(edit)
             if urlparse(self.path).path != "/api/control":
                 return self._send(404, {"error": "Not found"})
 

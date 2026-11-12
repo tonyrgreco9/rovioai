@@ -25,6 +25,7 @@ from .data import BrokerData, CsvData
 from .engine import Engine
 from .events import EarningsSource, EconCalendar
 from .store import Store
+from .watchlist import MARKETS, Watchlist
 
 
 def _db(cfg, mode: str) -> Path:
@@ -78,6 +79,10 @@ def cmd_serve(cfg, a):
     if not db.exists():
         Store(db).close()
         print(f"No {a.mode} journal yet; created an empty one. Start the worker to fill it.")
+    st = Store(db)
+    if st.get("mode") is None:
+        st.set("mode", a.mode.upper())          # journal exists but no worker has written to it yet
+    st.close()
     serve(str(db), cfg, a.host, a.port)
     return 0
 
@@ -108,7 +113,7 @@ def cmd_worker(cfg, a):
     if not brokers:
         print("No broker is available, so there is nothing to run. Add credentials to .env (see README) or use `replay`.", file=sys.stderr)
         return 2
-    engine = Engine(cfg, store, brokers, BrokerData(brokers), mode, EarningsSource.from_config(cfg), _calendar(cfg), notify=_notify_fn(cfg))
+    engine = Engine(cfg, store, brokers, BrokerData(brokers), mode, EarningsSource.from_config(cfg), _calendar(cfg), notify=_notify_fn(cfg), watchlist=Watchlist(cfg))
     store.set("data_label", None)
     print(f"{mode} worker running. Orders that qualify are sent automatically, with no per-trade approval. Ctrl+C to stop.")
     if live:
@@ -143,6 +148,7 @@ def cmd_worker(cfg, a):
 
 
 def cmd_backtest(cfg, a):
+    Watchlist(cfg).apply()
     names = list(C.STRATEGY_MARKET) if a.strategy == "all" else [a.strategy]
     source = "synthetic" if a.data == "synthetic" else CsvData(a.data.split(":", 1)[1])
     earnings = EarningsSource.from_config(cfg)
@@ -275,7 +281,25 @@ def cmd_control(cfg, a):
     return 0
 
 
+def cmd_watchlist(cfg, a):
+    w = Watchlist(cfg)
+    try:
+        if a.action == "add":
+            print(f"added {w.add(a.market, a.symbol, a.etf)} to {a.market}")
+        elif a.action == "remove":
+            print(f"removed {w.remove(a.market, a.symbol)} from {a.market}")
+    except (ValueError, TypeError) as e:
+        print(f"Not changed: {e}")
+        return 2
+    d = w.get()
+    for m in MARKETS:
+        print(f"  {m:<8} {', '.join(s + (' (ETF)' if m == 'stock' and s in d['etfs'] else '') for s in d[m]) or '(none)'}")
+    print("The paper/live worker applies changes on its next cycle. Open positions in a removed symbol keep being managed.")
+    return 0
+
+
 def cmd_activate(cfg, a):
+    Watchlist(cfg).apply()
     if not cfg.risk.set_by_user:
         print("Refused: set your own limits under [risk] and set risk.set_by_user = true first.")
         return 2
@@ -327,6 +351,8 @@ def main(argv=None) -> int:
         p = sub.add_parser(name); p.add_argument("state", choices=["on", "off"]); p.add_argument("--mode", choices=["paper", "live"], default="paper")
     p = sub.add_parser("resume"); p.add_argument("--mode", choices=["paper", "live"], default="paper")
     p = sub.add_parser("flatten"); p.add_argument("ids", nargs="*"); p.add_argument("--mode", choices=["paper", "live"], default="paper")
+    p = sub.add_parser("watchlist"); p.add_argument("action", choices=["list", "add", "remove"]); p.add_argument("market", nargs="?", choices=list(MARKETS))
+    p.add_argument("symbol", nargs="?"); p.add_argument("--etf", action="store_true", help="stock is an ETF (excluded from the earnings strategy)")
     p = sub.add_parser("activate-live"); p.add_argument("--broker", required=True); p.add_argument("--market", required=True); p.add_argument("--strategy", required=True)
     a = ap.parse_args(argv)
     C.load_env_file(Path(a.env_file))
@@ -338,7 +364,7 @@ def main(argv=None) -> int:
         return 2
     fn = {"replay": cmd_replay, "serve": cmd_serve, "init": cmd_init, "worker": cmd_worker, "backtest": cmd_backtest, "check": cmd_check,
           "sizing-demo": cmd_sizing, "status": cmd_status, "kill": cmd_control, "pause": cmd_control, "resume": cmd_control, "flatten": cmd_control,
-          "activate-live": cmd_activate}[a.cmd]
+          "activate-live": cmd_activate, "watchlist": cmd_watchlist}[a.cmd]
     return fn(cfg, a)
 
 

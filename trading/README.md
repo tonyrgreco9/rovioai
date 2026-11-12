@@ -54,11 +54,22 @@ Windows PowerShell: use `copy` instead of `cp`.
 | Start the paper worker | `python -m rovio_trader worker` |
 | Dashboard for paper | `python -m rovio_trader serve --mode paper` |
 | Controls | `pause on|off`, `kill on|off`, `flatten [trade ids]`, `resume` (also buttons on the dashboard) |
+| Edit the watchlist | Watchlist tab on the dashboard, or `python -m rovio_trader watchlist add stock TSLA` / `remove forex AUD/USD` / `list` |
 
 The worker is a separate long-running process: it keeps scanning, reconciling and managing exits
 with the browser closed. Keep it alive with your OS tools (`nohup python -m rovio_trader worker &`,
 a systemd unit, or Windows Task Scheduler). It does not run inside a Claude session. If it stops,
 protective stop orders already at the broker stay there, but rule-based exits wait until it restarts.
+
+## Watchlist
+
+One list, stored in `state/watchlist.json`, shared by the dashboard, the command line and the worker
+(once it exists it replaces the lists in `config.toml`). The worker applies an edit on its next cycle
+and asks the broker whether each symbol is tradable; the Watchlist tab then shows it as *watching* or
+shows the broker's reason. Removing a symbol stops new entries; an open position keeps being managed.
+Stocks take any US ticker, forex takes pairs that include USD, crypto takes USD-quoted pairs, futures
+take MES or MNQ. Editing the watchlist invalidates a live activation for the affected strategies.
+The replay is a fixed scripted run and does not use this list.
 
 ## The five strategies (initial research settings, all configurable)
 

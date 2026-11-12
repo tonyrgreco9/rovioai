@@ -88,6 +88,9 @@ class Cfg(dict):
         except KeyError:
             raise AttributeError(k) from None
 
+    def __setattr__(self, k, v):
+        self[k] = v
+
     @property
     def state_path(self) -> Path:
         p = Path(self["state_dir"])

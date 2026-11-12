@@ -10,7 +10,10 @@ def world_for(symbols, overrides=None, mode="REPLAY", store=None):
     ov = {k: dict(v) for k, v in F.OVERRIDES.items()}
     ov["markets"] = {"stock": {"watchlist": [s for s in symbols if s.startswith("RPL")], "etfs": ["RPLX"]}}
     for k, v in (overrides or {}).items():
-        ov.setdefault(k, {}).update(v)
+        if isinstance(v, dict):
+            ov.setdefault(k, {}).update(v)
+        else:
+            ov[k] = v
     cfg = config.load(None, ov)
     insts, ex, data, earn, cal = F.build(cfg)
     insts = [i for i in insts if i.symbol in symbols]
