@@ -1,0 +1,3 @@
+symbol,release_date,session,eps_actual,eps_estimate,actual_basis,estimate_basis,estimate_asof,source
+EXMP,2026-01-28,amc,1.32,1.20,adjusted,adjusted,2026-01-27,TEMPLATE ROW - replace with your vendor's point-in-time data
+EXMP,2026-04-29,bmo,1.10,1.15,gaap,gaap,2026-04-28,TEMPLATE ROW - session is bmo (before open) or amc (after close)

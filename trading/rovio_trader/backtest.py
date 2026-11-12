@@ -1,122 +1,216 @@
-"""Long/flat backtester. Signals are computed on a bar's close and filled at the NEXT bar's
-open, with commission + slippage charged on every position change. No look-ahead."""
+"""Backtests run the SAME engine, strategies, sizing and risk code as replay/paper/live, against the
+simulated venue. Results are split chronologically into train / validation / out-of-sample.
+
+What this can and cannot tell you:
+  * Costs modelled: spread, slippage, fees (per market), forex financing, gap-through-stop fills.
+  * Not modelled: taxes, borrow costs, market impact beyond the participation cap, intrabar order of
+    stop vs target (the stop is assumed to win), exchange outages.
+  * A fixed watchlist chosen today has SURVIVORSHIP BIAS: it excludes names that failed or were
+    delisted, which flatters every long strategy. Results are flagged accordingly.
+  * Synthetic data is for checking that the pipeline runs. It is never evidence.
+"""
 from __future__ import annotations
 
-import numpy as np
+import copy
+import itertools
+import json
+import math
+from pathlib import Path
+
 import pandas as pd
 
-from .indicators import compute_all
-from .signals import BUY, votes
+from . import config as C, instruments as I, simrun
+from .data import FrameData
+from .strategies import ALL
 
-
-def _latch(entry: pd.Series, exit_: pd.Series) -> pd.Series:
-    """1 after an entry bar until an exit bar."""
-    e, x = entry.fillna(False).to_numpy(bool), exit_.fillna(False).to_numpy(bool)
-    out, pos = np.zeros(len(e)), 0.0
-    for i in range(len(e)):
-        if pos and x[i]:
-            pos = 0.0
-        elif not pos and e[i] and not x[i]:
-            pos = 1.0
-        out[i] = pos
-    return pd.Series(out, index=entry.index)
-
-
-def _composite(ind):
-    s = votes(ind)["score"]
-    return _latch(s >= BUY, s < 0)
-
-
-STRATEGIES = {
-    "composite": ("Composite score (buy >= +20, exit < 0)", _composite),
-    "sma_cross": ("50/200 moving-average crossover", lambda i: (i["sma50"] > i["sma200"]).astype(float)),
-    "macd": ("MACD above signal, price above 200-bar average", lambda i: ((i["macd_hist"] > 0) & (i["close"] > i["sma200"])).astype(float)),
-    "rsi_reversion": ("RSI dip-buy in an uptrend (enter RSI<30, exit RSI>55)", lambda i: _latch((i["rsi"] < 30) & (i["close"] > i["sma200"]), i["rsi"] > 55)),
-    "donchian": ("Donchian breakout (enter 55-bar high, exit 20-bar low)", lambda i: _latch(i["close"] > i["don_hi55"], i["close"] < i["don_lo20"])),
-    "buy_hold": ("Buy and hold", lambda i: pd.Series(1.0, index=i.index)),
+GRID = {  # small, pre-declared grids; tuned on TRAIN, chosen on VALIDATION, reported on untouched OOS
+    "breakout": {"lookback": [20, 55], "stop_atr_mult": [2.0, 3.0]},
+    "earnings": {"min_surprise_pct": [0.0, 5.0]},
+    "orb": {"range_minutes": [15, 30], "target_r": [1.5, 2.0]},
+    "fx_pullback": {"stop_atr_mult": [1.5, 2.0], "target_r": [1.5, 2.5]},
+    "btc_breakout": {"lookback": [20, 40], "stop_atr_mult": [2.0, 3.0]},
 }
 
 
-def _metrics(rets: pd.Series, per_year: float) -> dict:
-    if len(rets) < 2:
-        return {}
-    eq = (1 + rets).cumprod()
-    total = float(eq.iloc[-1] - 1)
-    years = len(rets) / per_year
-    sd = float(rets.std(ddof=0))
-    down = float(np.sqrt((rets.clip(upper=0) ** 2).mean()))
-    dd = float((eq / eq.cummax() - 1).min())
-    r = lambda x, n=4: round(float(x), n)
+def dataset(cfg, strategy: str, source, synthetic_end: str | None = None):
+    """Instruments + bars for one strategy's market. `source` is a data object, or 'synthetic'."""
+    from .data import synthetic
+    market, tf = C.STRATEGY_MARKET[strategy], ALL[strategy].timeframe
+    m = cfg.markets[market]
+    if market == "stock":
+        insts = [I.stock(s, m.broker, s in m.etfs) for s in m.watchlist]
+    elif market == "forex":
+        insts = [I.forex(s, m.broker) for s in m.pairs]
+    elif market == "crypto":
+        insts = [I.crypto(s, m.broker) for s in m.symbols]
+    else:   # research only: one continuous series per root, modelled as a far-dated contract
+        insts = []
+        for root in m.roots:
+            c = I.future(root, "2099-12-18", m.broker)
+            c.symbol = root
+            insts.append(c)
+    frames, kept = {}, []
+    periods = {"1d": 1500, "1h": 9000, "4h": 4000, "5m": 78 * 250}[tf]
+    for inst in insts:
+        df = synthetic(inst.symbol, market, tf, synthetic_end or "2025-12-12", periods) if source == "synthetic" else source.bars(inst, tf)
+        if df is not None and len(df) > 100:
+            frames[(inst.symbol, tf)] = df
+            kept.append(inst)
+    label = "SYNTHETIC random walk (pipeline check only, not evidence)" if source == "synthetic" else source.label
+    return kept, frames, label, [i.symbol for i in insts if i not in kept]
+
+
+def _scale_costs(cfg, mult: float):
+    c = copy.deepcopy(dict(cfg))
+    for mk, d in c["costs"].items():
+        c["costs"][mk] = {k: v * mult for k, v in d.items()}
+    return C._wrap(json.loads(json.dumps(c)))
+
+
+def simulate(cfg, strategy: str, insts, frames, start, end, earnings=None, calendar=None) -> dict:
+    """One run over [start, end] with a fresh account. History before `start` is visible for warm-up only."""
+    tf = ALL[strategy].timeframe
+    exec_bars = {s: df for (s, _), df in frames.items()}
+    world, brokers, store, engine = simrun.make(cfg, insts, exec_bars, FrameData(frames, "backtest"), "BACKTEST", earnings, calendar,
+                                                only=[strategy], record_scanner=False)
+    if calendar is not None:
+        calendar.sim_always_fresh = True
+    simrun.drive(world, engine, world.timeline(start, end))
+    trades = store.q("SELECT * FROM trades WHERE status='closed' ORDER BY id")
+    eq = pd.Series({pd.Timestamp(r["ts"]): r["equity"] for r in store.q("SELECT ts, equity FROM equity ORDER BY ts")})
+    start_eq = sum(cfg.portfolio.sim_starting_cash.get(k, 0.0) for k in brokers)
+    net = [t["realized"] - t["fees"] for t in trades]
+    wins, losses = [x for x in net if x > 0], [x for x in net if x <= 0]
+    # per-trade return on the trade's own notional, for the t-statistic
+    rets = [(t["realized"] - t["fees"]) / max(t["qty_total"] * t["entry_avg"] * next(i for i in insts if i.symbol == t["symbol"]).multiplier, 1e-9) for t in trades]
+    mean = sum(rets) / len(rets) if rets else 0.0
+    sd = math.sqrt(sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)) if len(rets) > 1 else 0.0
+    held = sum((pd.Timestamp(t["closed"]) - pd.Timestamp(t["opened"])).total_seconds() for t in trades)
+    span = max((end - start).total_seconds(), 1.0)
+    by = lambda key: {k: {"trades": len(v), "net": round(sum(v), 2)} for k, v in
+                      {k: [t["realized"] - t["fees"] for t in trades if key(t) == k] for k in sorted({key(t) for t in trades})}.items()}
+    bh = []
+    for inst in insts:
+        df = frames[(inst.symbol, tf)]
+        d = df[(df.index >= start) & (df.index <= end)]
+        if len(d) > 1:
+            bh.append(float(d["close"].iloc[-1] / d["open"].iloc[0] - 1))
+    out = {
+        "start": str(start), "end": str(end), "trades": len(trades), "net_pnl": round(sum(net), 2),
+        "avg_net_per_trade": round(sum(net) / len(net), 2) if net else None, "win_rate": round(len(wins) / len(net), 3) if net else None,
+        "avg_win": round(sum(wins) / len(wins), 2) if wins else None, "avg_loss": round(sum(losses) / len(losses), 2) if losses else None,
+        "return_pct": round(sum(net) / start_eq * 100, 2) if start_eq else None,
+        "max_drawdown_pct": round(float((eq / eq.cummax() - 1).min()) * 100, 2) if len(eq) else 0.0,
+        "exposure_pct": round(held / span * 100, 1), "turnover_x": round(sum(2 * t["qty_total"] * t["entry_avg"] for t in trades) / start_eq, 2) if start_eq else None,
+        "mean_trade_return_pct": round(mean * 100, 4), "t_stat": round(mean / (sd / math.sqrt(len(rets))), 2) if sd > 0 else None,
+        "by_symbol": by(lambda t: t["symbol"]), "by_direction": by(lambda t: "long" if t["side"] > 0 else "short"),
+        "benchmark_buy_hold_pct": round(sum(bh) / len(bh) * 100, 2) if bh else None,
+        "signals": {r["status"]: r["n"] for r in store.q("SELECT status, COUNT(*) n FROM signals GROUP BY status")},
+    }
+    store.close()
+    return out
+
+
+def evaluate(cfg, strategy: str, source="synthetic", tune: bool = False, earnings=None, calendar=None, progress=print) -> dict:
+    insts, frames, label, missing = dataset(cfg, strategy, source)
+    if not insts:
+        return {"strategy": strategy, "status": "no_data", "detail": f"No bars available for {strategy} from {label}.", "missing": missing}
+    tf = ALL[strategy].timeframe
+    t0 = max(df.index[min(len(df) - 1, 260)] for df in frames.values())     # leave warm-up history before the first test bar
+    t1 = min(df.index[-1] for df in frames.values())
+    ev = cfg.evidence
+    a = t0 + (t1 - t0) * ev.train_fraction
+    b = a + (t1 - t0) * ev.validation_fraction
+    run = lambda c, s, e: simulate(c, strategy, insts, frames, s, e, earnings, calendar)
+    chosen, tuning = cfg, None
+    if tune:
+        keys = list(GRID[strategy])
+        cands = []
+        for combo in itertools.product(*GRID[strategy].values()):
+            c = C.load(None, _plain_overrides(cfg, {"strategies": {strategy: dict(zip(keys, combo))}}))
+            tr = run(c, t0, a)
+            cands.append((dict(zip(keys, combo)), c, tr))
+            progress(f"  train {dict(zip(keys, combo))}: {tr['trades']} trades, avg ${tr['avg_net_per_trade']}")
+        top = sorted([x for x in cands if x[2]["trades"] >= 10], key=lambda x: -(x[2]["avg_net_per_trade"] or -1e18))[:3] or cands[:1]
+        scored = [(p, c, tr, run(c, a, b)) for p, c, tr in top]
+        best = max(scored, key=lambda x: (x[3]["avg_net_per_trade"] if x[3]["trades"] else -1e18) or -1e18)
+        chosen = best[1]
+        tuning = {"grid": GRID[strategy], "chosen": best[0], "candidates_tried": len(cands),
+                  "note": "Parameters were fitted on train and selected on validation only. Out-of-sample was not looked at during selection."}
+    res = {"train": run(chosen, t0, a), "validation": run(chosen, a, b), "out_of_sample": run(chosen, b, t1)}
+    res["out_of_sample_costs_x2"] = simulate(_scale_costs(chosen, 2.0), strategy, insts, frames, b, t1, earnings, calendar)
+    oos = res["out_of_sample"]
+    flags = []
+    synthetic_data = source == "synthetic"
+    if synthetic_data:
+        flags.append("SYNTHETIC DATA: this run only proves the pipeline executes. It is not evidence about any market.")
+    if C.STRATEGY_MARKET[strategy] == "stock":
+        flags.append("Survivorship bias: the watchlist is today's list of names; companies that failed or were delisted are absent, which flatters long strategies.")
+    if C.STRATEGY_MARKET[strategy] == "futures":
+        flags.append("Continuous futures series (research only): roll gaps and per-contract liquidity are not represented.")
+    if missing:
+        flags.append(f"Incomplete history: no usable data for {', '.join(missing)}.")
+    if oos["trades"] < ev.min_oos_trades:
+        flags.append(f"Insufficient sample: {oos['trades']} out-of-sample trades (minimum {ev.min_oos_trades}).")
+    reasons = []
+    if synthetic_data:
+        reasons.append("synthetic data")
+    if oos["trades"] < ev.min_oos_trades:
+        reasons.append(f"only {oos['trades']} out-of-sample trades")
+    if not oos["avg_net_per_trade"] or oos["avg_net_per_trade"] <= 0:
+        reasons.append("average net result per trade is not positive out-of-sample")
+    if oos["t_stat"] is None or oos["t_stat"] < ev.min_t_stat:
+        reasons.append(f"t-statistic {oos['t_stat']} below {ev.min_t_stat:g}")
+    if (res["out_of_sample_costs_x2"]["avg_net_per_trade"] or 0) <= 0:
+        reasons.append("not profitable if trading costs are doubled")
     return {
-        "total_return": r(total),
-        "cagr": r((1 + total) ** (1 / years) - 1) if years > 0 and total > -1 else None,
-        "volatility": r(sd * np.sqrt(per_year)),
-        "sharpe": r(rets.mean() / sd * np.sqrt(per_year), 2) if sd > 0 else None,
-        "sortino": r(rets.mean() / down * np.sqrt(per_year), 2) if down > 0 else None,
-        "max_drawdown": r(dd),
+        "strategy": strategy, "strategy_version": C.STRATEGY_VERSION[strategy], "strategy_hash": chosen.strategy_hash(strategy), "status": "ok",
+        "data_source": label, "timeframe": tf, "instruments": [i.symbol for i in insts], "parameters": dict(chosen.strategies[strategy]),
+        "costs": dict(chosen.costs[C.STRATEGY_MARKET[strategy]]), "tuning": tuning, "results": res, "flags": flags,
+        "verdict": "eligible_for_live" if not reasons else "research_only", "verdict_reasons": reasons,
+        "generated": pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
 
 
-def run(df: pd.DataFrame, strategy: str = "composite", cost_bps: float = 5.0, slippage_bps: float = 5.0, oos_fraction: float = 0.3) -> dict:
-    if strategy not in STRATEGIES:
-        raise ValueError(f"Unknown strategy {strategy!r}")
-    if len(df) < 100:
-        raise ValueError("Need at least 100 bars to backtest")
-    ind = compute_all(df)
-    sig = STRATEGIES[strategy][1](ind).fillna(0.0)
-    pos = sig.shift(1).fillna(0.0)          # position held from this bar's open
-    prev_pos = pos.shift(1).fillna(0.0)     # position carried in overnight
-    o, c = df["open"], df["close"]
-    pc = c.shift(1)
-    gap = (o / pc - 1).fillna(0.0)
-    intraday = c / o - 1
-    turnover = (pos - prev_pos).abs()
-    rate = (cost_bps + slippage_bps) / 1e4
-    rets = (1 + prev_pos * gap) * (1 + pos * intraday) * (1 - turnover * rate) - 1
-    bh = c.pct_change().fillna(0.0)
+def _plain_overrides(cfg, extra: dict) -> dict:
+    """Current settings expressed as overrides of the defaults (so a variant can be loaded with validation)."""
+    base = json.loads(json.dumps({k: v for k, v in cfg.items()}))
+    for k, v in extra.items():
+        for k2, v2 in v.items():
+            base[k][k2].update(v2)
+    return base
 
-    span_years = max((df.index[-1] - df.index[0]).total_seconds() / (365.25 * 86400), 1e-9)
-    per_year = len(df) / span_years
 
-    trades, entry = [], None
-    for i in np.flatnonzero(turnover.to_numpy() > 0):
-        px = float(o.iloc[i])
-        if pos.iloc[i] > 0:
-            entry = (df.index[i], px * (1 + rate))
-        elif entry:
-            xp = px * (1 - rate)
-            trades.append({"entry_time": entry[0].isoformat(), "entry_price": round(entry[1], 6), "exit_time": df.index[i].isoformat(), "exit_price": round(xp, 6), "return": round(xp / entry[1] - 1, 4)})
-            entry = None
-    if entry:
-        trades.append({"entry_time": entry[0].isoformat(), "entry_price": round(entry[1], 6), "exit_time": None, "exit_price": None, "return": round(float(c.iloc[-1]) / entry[1] - 1, 4), "open": True})
-    closed = [t["return"] for t in trades if t["exit_time"]]
-    wins, losses = [t for t in closed if t > 0], [t for t in closed if t <= 0]
+def save_evidence(cfg, report: dict) -> Path:
+    p = cfg.state_path / "evidence.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    allr = json.loads(p.read_text()) if p.exists() else {}
+    allr[report["strategy"]] = report
+    p.write_text(json.dumps(allr, indent=1))
+    return p
 
-    split = int(len(rets) * (1 - oos_fraction))
-    stats = _metrics(rets, per_year)
-    stats.update({
-        "trades": len(closed),
-        "win_rate": round(len(wins) / len(closed), 3) if closed else None,
-        "profit_factor": round(sum(wins) / -sum(losses), 2) if losses and sum(losses) < 0 else None,
-        "avg_trade": round(float(np.mean(closed)), 4) if closed else None,
-        "exposure": round(float(pos.mean()), 3),
-    })
-    return {
-        "strategy": strategy,
-        "description": STRATEGIES[strategy][0],
-        "bars": len(df),
-        "start": df.index[0].isoformat(),
-        "end": df.index[-1].isoformat(),
-        "costs_bps_per_side": cost_bps + slippage_bps,
-        "stats": stats,
-        "buy_hold": _metrics(bh, per_year),
-        "in_sample": _metrics(rets.iloc[:split], per_year),
-        "out_of_sample": _metrics(rets.iloc[split:], per_year),
-        "oos_start": df.index[split].isoformat(),
-        "trades": trades,
-        "equity": {
-            "t": [int(t.timestamp()) for t in df.index],
-            "strategy": [round(float(x), 5) for x in (1 + rets).cumprod()],
-            "buy_hold": [round(float(x), 5) for x in (1 + bh).cumprod()],
-        },
-    }
+
+def load_evidence(cfg) -> dict:
+    p = cfg.state_path / "evidence.json"
+    return json.loads(p.read_text()) if p.exists() else {}
+
+
+def format_report(r: dict) -> str:
+    if r["status"] != "ok":
+        return f"{r['strategy']}: {r['detail']}"
+    L = [f"\n{r['strategy']} v{r['strategy_version']} ({r['timeframe']})   data: {r['data_source']}", f"instruments: {', '.join(r['instruments'])}",
+         f"parameters: {r['parameters']}", f"costs: {r['costs']}"]
+    if r["tuning"]:
+        L.append(f"tuned: {r['tuning']['chosen']} from {r['tuning']['candidates_tried']} candidates (train -> validation)")
+    L.append(f"{'period':<24}{'trades':>7}{'net P&L':>12}{'avg/trade':>11}{'win%':>7}{'avg win':>10}{'avg loss':>10}{'maxDD%':>8}{'expo%':>7}{'turn x':>8}{'B&H%':>8}")
+    for k in ("train", "validation", "out_of_sample", "out_of_sample_costs_x2"):
+        x = r["results"][k]
+        f = lambda v, w, d=2: f"{v:>{w},.{d}f}" if v is not None else " " * (w - 3) + "n/a"
+        L.append(f"{k:<24}{x['trades']:>7}{f(x['net_pnl'], 12)}{f(x['avg_net_per_trade'], 11)}{f(x['win_rate'] and x['win_rate'] * 100, 7, 1)}{f(x['avg_win'], 10)}"
+                 f"{f(x['avg_loss'], 10)}{f(x['max_drawdown_pct'], 8)}{f(x['exposure_pct'], 7, 1)}{f(x['turnover_x'], 8)}{f(x['benchmark_buy_hold_pct'], 8)}")
+    o = r["results"]["out_of_sample"]
+    L.append(f"out-of-sample {o['start'][:10]} to {o['end'][:10]}: by direction {o['by_direction']}; signals {o['signals']}; t-stat {o['t_stat']}")
+    L.append(f"by symbol (OOS): {o['by_symbol']}")
+    L += [f"  ! {x}" for x in r["flags"]]
+    L.append(f"VERDICT: {r['verdict'].upper().replace('_', ' ')}" + (f" - {'; '.join(r['verdict_reasons'])}" if r["verdict_reasons"] else ""))
+    return "\n".join(L)

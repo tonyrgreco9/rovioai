@@ -1,4 +1,6 @@
 .env
+config.toml
+state/
 .state/
 __pycache__/
 *.pyc

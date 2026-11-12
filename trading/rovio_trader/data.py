@@ -1,175 +1,145 @@
-"""Market data providers.
+"""Bar data sources. Bars are DataFrames indexed by bar END (UTC) with columns
+start, open, high, low, close, volume. A bar is usable only once its end has passed.
 
-YahooProvider covers stocks, ETFs, mutual funds, FX (EURUSD=X) and crypto (BTC-USD) through
-Yahoo Finance's public chart endpoint. It is unofficial, delayed, and can change or rate-limit
-without notice; swap in a paid feed by implementing `history()`.
-
-SyntheticProvider generates deterministic fake prices for demos and tests. It must never be
-used to make real trading decisions.
+  FrameData    in-memory frames (replay fixtures, backtests, tests)
+  CsvData      your own history: <dir>/<SYMBOL>_<tf>.csv  (EUR/USD -> EUR-USD_1h.csv)
+  BrokerData   live/paper: bars come from each instrument's own broker adapter
+  synthetic()  random-walk bars for plumbing checks ONLY; never evidence of anything
 """
 from __future__ import annotations
 
-import json
-import re
 import time
-import urllib.parse
-import urllib.request
 import zlib
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-RANGE_DAYS = {"1mo": 30, "3mo": 91, "6mo": 182, "1y": 365, "2y": 730, "5y": 1826, "10y": 3652}
-INTERVALS = {"1h": 3600, "1d": 86400, "1wk": 604800}
+from .instruments import ET
+
+TF = {"5m": pd.Timedelta(minutes=5), "1h": pd.Timedelta(hours=1), "4h": pd.Timedelta(hours=4), "1d": pd.Timedelta(days=1)}
+COLS = ["start", "open", "high", "low", "close", "volume"]
 
 
 class DataError(Exception):
     pass
 
 
-def normalize_symbol(raw: str) -> str:
-    s = raw.strip().upper().replace(" ", "")
-    if not re.fullmatch(r"[A-Z0-9^][A-Z0-9.\-=/]{0,14}", s):
-        raise DataError(f"Invalid symbol: {raw!r}")
-    if "/" in s:
-        base, quote = s.split("/", 1)
-        fiat = {"USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD"}
-        return f"{base}{quote}=X" if base in fiat and quote in fiat else f"{base}-{quote}"
-    return s
+def frame(starts, ends, o, h, l, c, v) -> pd.DataFrame:
+    df = pd.DataFrame({"start": pd.DatetimeIndex(starts), "open": np.asarray(o, float), "high": np.asarray(h, float), "low": np.asarray(l, float),
+                       "close": np.asarray(c, float), "volume": np.asarray(v, float)})
+    df.index = pd.DatetimeIndex(ends, name="end")
+    return df
 
 
-def asset_class(symbol: str) -> str:
-    """Heuristic asset class from the symbol format: forex | crypto | mutual_fund | equity."""
-    if symbol.endswith("=X"):
-        return "forex"
-    if re.fullmatch(r"[A-Z0-9]+-(USD|USDT|EUR)", symbol):
-        return "crypto"
-    if re.fullmatch(r"[A-Z]{4}X", symbol):
-        return "mutual_fund"
-    return "equity"
+def session_times(dates) -> tuple[pd.DatetimeIndex, pd.DatetimeIndex]:
+    """US regular session open/close (UTC) for calendar dates."""
+    d = pd.DatetimeIndex(dates).tz_localize(None).normalize()
+    op = (d + pd.Timedelta(hours=9, minutes=30)).tz_localize(ET).tz_convert("UTC")
+    cl = (d + pd.Timedelta(hours=16)).tz_localize(ET).tz_convert("UTC")
+    return op, cl
 
 
-def _check(range_: str, interval: str) -> None:
-    if range_ not in RANGE_DAYS:
-        raise DataError(f"Unsupported range {range_!r}; use one of {sorted(RANGE_DAYS)}")
-    if interval not in INTERVALS:
-        raise DataError(f"Unsupported interval {interval!r}; use one of {sorted(INTERVALS)}")
-    if interval == "1h" and RANGE_DAYS[range_] > 730:
-        raise DataError("Hourly data is limited to the last 2 years")
+def daily_frame(dates, o, h, l, c, v) -> pd.DataFrame:
+    op, cl = session_times(dates)
+    return frame(op, cl, o, h, l, c, v)
 
 
-class Provider:
-    name = "base"
-    is_synthetic = False
+class FrameData:
+    def __init__(self, frames: dict[tuple[str, str], pd.DataFrame], label: str):
+        self.frames, self.label = frames, label
 
-    def __init__(self, ttl: float = 60.0):
-        self._cache: dict[tuple, tuple[float, pd.DataFrame]] = {}
-        self.ttl = ttl
+    def bars(self, inst, tf: str) -> pd.DataFrame | None:
+        return self.frames.get((inst.symbol, tf))
 
-    def history(self, symbol: str, range_: str = "2y", interval: str = "1d") -> pd.DataFrame:
-        """OHLCV frame indexed by UTC timestamp, oldest first."""
-        symbol = normalize_symbol(symbol)
-        _check(range_, interval)
-        key = (symbol, range_, interval)
+
+def _fname(symbol: str, tf: str) -> str:
+    return f"{symbol.replace('/', '-')}_{tf}.csv"
+
+
+class CsvData(FrameData):
+    """CSV columns: start,open,high,low,close,volume[,end]. `start` is UTC; for daily stock bars a plain
+    date is accepted and mapped to the 09:30-16:00 ET session."""
+
+    def __init__(self, directory: str | Path):
+        self.dir = Path(directory)
+        super().__init__({}, f"CSV files in {self.dir.name}/ (you are responsible for adjustments and accuracy)")
+
+    def bars(self, inst, tf):
+        key = (inst.symbol, tf)
+        if key not in self.frames:
+            p = self.dir / _fname(inst.symbol, tf)
+            if not p.is_file():
+                return None
+            raw = pd.read_csv(p)
+            miss = [c for c in COLS if c not in raw.columns]
+            if miss:
+                raise DataError(f"{p.name} is missing columns {miss}")
+            if tf == "1d" and inst.market == "stock":
+                op, cl = session_times(pd.to_datetime(raw["start"]).dt.date)
+            else:
+                op = pd.DatetimeIndex(pd.to_datetime(raw["start"], utc=True))
+                cl = pd.DatetimeIndex(pd.to_datetime(raw["end"], utc=True)) if "end" in raw.columns else op + TF[tf]
+            self.frames[key] = frame(op, cl, raw["open"], raw["high"], raw["low"], raw["close"], raw["volume"]).sort_index()
+        return self.frames[key]
+
+
+def write_csv(directory: Path, symbol: str, tf: str, df: pd.DataFrame):
+    directory.mkdir(parents=True, exist_ok=True)
+    out = df.reset_index()
+    for c in ("start", "end"):
+        out[c] = out[c].dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    out[COLS + ["end"]].to_csv(directory / _fname(symbol, tf), index=False)
+
+
+class BrokerData:
+    """Paper/live: each instrument's bars come from its own broker, cached briefly. Incomplete bars are dropped."""
+    LIMIT = {"5m": 400, "1h": 500, "4h": 400, "1d": 300}
+
+    def __init__(self, brokers: dict, ttl: float = 20.0):
+        self.brokers, self.ttl, self._cache = brokers, ttl, {}
+        self.label = "; ".join(f"{k}: {b.data_label}" for k, b in brokers.items())
+
+    def bars(self, inst, tf):
+        key = (inst.symbol, tf)
         hit = self._cache.get(key)
         if hit and time.time() - hit[0] < self.ttl:
             return hit[1]
-        df = self._fetch(symbol, range_, interval)
-        if df.empty:
-            raise DataError(f"No data returned for {symbol}")
+        b = self.brokers[inst.broker]
+        df = b.bars(inst, tf, self.LIMIT[tf])
+        if df is not None and len(df):
+            df = df[df.index <= b.now()]
         self._cache[key] = (time.time(), df)
         return df
 
-    def last_price(self, symbol: str) -> float:
-        return float(self.history(symbol, "1mo", "1d")["close"].iloc[-1])
 
-    def _fetch(self, symbol: str, range_: str, interval: str) -> pd.DataFrame:
-        raise NotImplementedError
-
-
-class YahooProvider(Provider):
-    name = "yahoo"
-    URL = "https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range={r}&interval={i}&includeAdjustedClose=true"
-
-    def _fetch(self, symbol, range_, interval):
-        url = self.URL.format(sym=urllib.parse.quote(symbol), r=range_, i=interval)
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        try:
-            with urllib.request.urlopen(req, timeout=20) as resp:
-                payload = json.load(resp)
-        except Exception as e:  # network, HTTP, JSON
-            raise DataError(f"Market data request failed for {symbol}: {e}") from e
-        return parse_yahoo_chart(payload, symbol)
-
-
-def parse_yahoo_chart(payload: dict, symbol: str = "") -> pd.DataFrame:
-    chart = payload.get("chart") or {}
-    if chart.get("error") or not chart.get("result"):
-        raise DataError(f"No data for {symbol}: {(chart.get('error') or {}).get('description', 'empty result')}")
-    res = chart["result"][0]
-    ts = res.get("timestamp") or []
-    q = (res.get("indicators", {}).get("quote") or [{}])[0]
-    df = pd.DataFrame(
-        {k: pd.to_numeric(pd.Series(q.get(k, [None] * len(ts)), dtype="object"), errors="coerce")
-         for k in ("open", "high", "low", "close", "volume")}
-    )
-    df.index = pd.to_datetime(pd.Series(ts, dtype="int64"), unit="s", utc=True)
-    df.index.name = "time"
-    adj = (res.get("indicators", {}).get("adjclose") or [{}])[0].get("adjclose")
-    if adj and len(adj) == len(df):
-        # Adjust for splits/dividends so indicators and backtests see total-return prices.
-        f = (pd.to_numeric(pd.Series(adj, dtype="object"), errors="coerce").to_numpy() / df["close"].to_numpy())
-        for k in ("open", "high", "low", "close"):
-            df[k] = df[k] * f
-    df = df.dropna(subset=["close"])
-    for k in ("open", "high", "low"):
-        df[k] = df[k].fillna(df["close"])
-    df["volume"] = df["volume"].fillna(0.0)
-    return df[~df.index.duplicated(keep="last")].sort_index()
-
-
-class SyntheticProvider(Provider):
-    """Deterministic regime-switching random walk, seeded per symbol. DEMO/TEST ONLY."""
-    name = "synthetic"
-    is_synthetic = True
-
-    def __init__(self, end: str | None = None, ttl: float = 3600.0):
-        super().__init__(ttl)
-        self.end = pd.Timestamp(end, tz="UTC") if end else pd.Timestamp.now(tz="UTC").floor("D")
-
-    def _fetch(self, symbol, range_, interval):
-        cls = asset_class(symbol)
-        step = INTERVALS[interval]
-        start = self.end - pd.Timedelta(days=RANGE_DAYS[range_])
-        idx = pd.date_range(start, self.end, freq=pd.Timedelta(seconds=step), tz="UTC")
-        if cls != "crypto":
-            idx = idx[idx.dayofweek < 5]
-            if interval == "1h":
-                idx = idx[(idx.hour >= 14) & (idx.hour < 21)]
-        # Generate on a fixed epoch grid so overlapping ranges agree with each other.
-        rng = np.random.default_rng(zlib.crc32(f"{symbol}|{interval}".encode()))
-        n_total = 12000
-        ann_vol = {"crypto": 0.65, "forex": 0.08, "mutual_fund": 0.14}.get(cls, 0.28)
-        per_year = {"1h": 252 * 7, "1d": 252, "1wk": 52}[interval] * (365 / 252 if cls == "crypto" and interval != "1wk" else 1)
-        sd = ann_vol / np.sqrt(per_year)
-        regime = np.repeat(rng.choice([-0.35, 0.1, 0.45], size=n_total // 120 + 1, p=[0.25, 0.35, 0.4]), 120)[:n_total]
-        rets = regime / per_year + sd * rng.standard_normal(n_total)
-        base = {"crypto": 30000.0, "forex": 1.1, "mutual_fund": 150.0}.get(cls, 120.0)
-        path = np.cumsum(rets)
-        close_all = base * np.exp(path - path[-1])  # series ends near `base`
-        noise = np.abs(rng.standard_normal((n_total, 3))) * sd
-        vol_all = rng.lognormal(15, 0.4, n_total)
-        n = len(idx)
-        if n > n_total:
-            raise DataError("Synthetic range too long")
-        c = close_all[-n:]
-        o = np.concatenate([[c[0]], c[:-1]]) * np.exp((noise[-n:, 0] - sd * 0.8) * 0.3)
-        h = np.maximum(o, c) * np.exp(noise[-n:, 1] * 0.6)
-        l = np.minimum(o, c) * np.exp(-noise[-n:, 2] * 0.6)
-        v = vol_all[-n:]
-        if cls == "mutual_fund":  # one NAV per day
-            o = h = l = c
-            v = np.zeros(n)
-        if cls == "forex":
-            v = np.zeros(n)
-        return pd.DataFrame({"open": o, "high": h, "low": l, "close": c, "volume": v}, index=idx.rename("time"))
+def synthetic(symbol: str, market: str, tf: str, end: str, periods: int) -> pd.DataFrame:
+    """Deterministic regime-switching random walk. For checking that the pipeline runs; NOT market data."""
+    rng = np.random.default_rng(zlib.crc32(f"{symbol}|{tf}".encode()))
+    end_ts = pd.Timestamp(end, tz="UTC")
+    if tf == "1d" and market == "stock":
+        days = pd.bdate_range(end=end_ts.tz_localize(None).normalize(), periods=periods)
+        op, cl = session_times(days)
+    elif market == "futures":
+        days = pd.bdate_range(end=end_ts.tz_localize(None).normalize(), periods=max(periods // 78, 1))
+        o0, _ = session_times(days)
+        op = pd.DatetimeIndex([o + TF[tf] * i for o in o0 for i in range(78)])
+        cl = op + TF[tf]
+    else:
+        op = pd.date_range(end=end_ts.floor(TF[tf]) - TF[tf], periods=periods, freq=TF[tf], tz="UTC")
+        if market == "forex":
+            op = op[op.dayofweek < 5]
+        cl = op + TF[tf]
+    n = len(op)
+    per_year = {"1d": 252, "4h": 6 * 365, "1h": 24 * 260, "5m": 78 * 252}[tf]
+    vol = {"stock": 0.3, "futures": 0.18, "forex": 0.08, "crypto": 0.6}[market]
+    sd = vol / np.sqrt(per_year)
+    regime = np.repeat(rng.choice([-0.3, 0.05, 0.4], size=n // 150 + 1, p=[0.25, 0.35, 0.4]), 150)[:n]
+    path = np.cumsum(regime / per_year + sd * rng.standard_normal(n))
+    base = {"stock": 120.0, "futures": 6000.0, "forex": 1.1, "crypto": 60000.0}[market] * (130 if symbol.endswith("JPY") else 1)
+    c = base * np.exp(path - path[-1])
+    o = np.concatenate([[c[0]], c[:-1]]) * np.exp(sd * 0.2 * rng.standard_normal(n))
+    wig = np.abs(rng.standard_normal((n, 2))) * sd * 0.7
+    h, l = np.maximum(o, c) * np.exp(wig[:, 0]), np.minimum(o, c) * np.exp(-wig[:, 1])
+    v = rng.lognormal(14, 0.5, n) if market in ("stock", "futures", "crypto") else np.zeros(n)
+    return frame(op, cl, o, h, l, c, v)

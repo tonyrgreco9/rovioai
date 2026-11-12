@@ -1,0 +1,134 @@
+# Copy to config.toml and edit. Anything you leave out keeps its default (see rovio_trader/config.py).
+# Strategy numbers are INITIAL RESEARCH SETTINGS, not validated parameters.
+# Risk numbers are PAPER-MODE EXAMPLES. Live trading refuses to start until you choose your own
+# limits and set  risk.set_by_user = true.
+
+state_dir = "state"
+poll_seconds = 20
+
+[portfolio]
+daily_reset_tz = "America/New_York"   # daily loss counters reset at this wall-clock time...
+daily_reset_time = "17:00"            # ...every day, weekends included (Bitcoin trades through them)
+
+[markets.stock]
+broker = "alpaca"
+watchlist = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "JPM", "XOM"]
+etfs = ["SPY", "QQQ"]                 # ETFs are excluded from the earnings strategy
+data_feed = "iex"                     # "sip" needs a paid Alpaca data subscription
+
+[markets.futures]
+broker = "ibkr"                       # adapter not built yet: futures run in replay/backtest only
+roots = ["MES", "MNQ"]
+expiry_exclusion_days = 7             # no entries in a contract this close to expiry; roll to the next
+
+[markets.forex]
+broker = "oanda"
+pairs = ["EUR/USD", "GBP/USD", "USD/JPY"]
+calendar_csv = ""                     # e.g. "examples/calendar.example.csv"; forex entries pause without a fresh one
+calendar_max_age_hours = 24.0
+
+[markets.crypto]
+broker = "alpaca"
+symbols = ["BTC/USD"]
+
+[strategies.breakout]                 # A. stocks/ETFs, daily
+enabled = true
+lookback = 20
+volume_mult = 1.5
+sma_period = 50
+stop_atr_mult = 2.0
+exit_channel = 10
+max_hold_sessions = 30
+max_gap_pct = 3.0
+max_spread_bps = 20.0
+
+[strategies.earnings]                 # B. stocks, post-earnings momentum
+enabled = true
+events_csv = ""                       # e.g. "examples/earnings.example.csv"; empty = strategy produces no signals
+min_surprise_pct = 0.0
+volume_mult = 1.5
+
+[strategies.orb]                      # C. futures opening-range breakout, 5-minute bars
+enabled = true
+range_minutes = 30
+trend_filter = "ema"                  # ema | prior_close | none
+stop_atr_mult = 3.0
+target_r = 2.0
+last_entry = "14:30"                  # US/Eastern
+flatten = "15:45"
+allow_short = true
+
+[strategies.fx_pullback]              # D. spot forex, 4h trend + 1h pullback
+enabled = true
+stop_atr_mult = 2.0
+target_r = 2.0
+max_hold_hours = 72.0
+max_spread_pips = 2.5
+blackout_before_min = 60.0
+blackout_after_min = 30.0
+
+[strategies.btc_breakout]             # E. BTC/USD, 4h bars on UTC boundaries, long only
+enabled = true
+lookback = 20
+daily_trend_sma = 20
+stop_atr_mult = 2.5
+max_spread_bps = 30.0
+
+[risk]                                # PAPER-MODE EXAMPLES - choose your own before going live
+set_by_user = false
+max_loss_per_trade_pct = 0.5          # planned loss at the stop, % of total equity
+max_loss_per_trade_usd = 0.0          # optional dollar cap (0 = off)
+max_open_risk_pct = 3.0               # open positions + pending entries
+max_gross_exposure_pct = 200.0        # gross notional / equity (leverage)
+max_instrument_pct = 25.0
+max_positions = 8
+max_order_notional_usd = 50000.0
+daily_loss_limit_pct = 2.0            # realized + unrealized since the daily reset
+max_drawdown_pct = 10.0               # peak to trough; stays halted until `resume`
+max_quote_age_sec = 30.0
+emergency_exit_policy = "flatten"     # if a protective stop cannot be placed: flatten | hold_and_alert
+max_currency_exposure_pct = 150.0
+
+[risk.per_market_pct]
+stock = 100.0
+futures = 100.0
+forex = 150.0
+crypto = 20.0
+
+[risk.per_broker_pct]
+alpaca = 100.0
+oanda = 150.0
+ibkr = 100.0
+
+[risk.groups.sp500]                   # correlated exposure: an S&P ETF and S&P futures are the same bet
+symbols = ["SPY", "MES"]
+max_pct = 30.0
+
+[risk.groups.nasdaq100]
+symbols = ["QQQ", "MNQ"]
+max_pct = 30.0
+
+[costs.stock]                         # simulation assumptions for replay/backtest: set to what you actually pay
+half_spread_bps = 2.5
+slippage_bps = 5.0
+
+[costs.futures]
+half_spread_ticks = 0.5
+slippage_ticks = 0.5
+fee_per_unit = 0.62                   # per contract, per side
+
+[costs.forex]
+half_spread_pips = 0.6
+slippage_pips = 0.2
+financing_bps_per_day = 0.8
+
+[costs.crypto]
+half_spread_bps = 5.0
+slippage_bps = 5.0
+fee_bps = 25.0                        # per side
+
+[evidence]
+train_fraction = 0.5
+validation_fraction = 0.25            # the remaining 25% is the untouched out-of-sample period
+min_oos_trades = 30
+min_t_stat = 2.0

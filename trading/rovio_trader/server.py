@@ -1,4 +1,6 @@
-"""Local JSON API + dashboard. Binds to 127.0.0.1 by default; there is no authentication, so do not expose it."""
+"""Dashboard API. Reads the journal database written by the worker (or by a replay run); it never talks
+to a broker and never sees credentials. Controls are written as flags that the worker acts on.
+Binds to 127.0.0.1 and has no login: do not expose it to a network."""
 from __future__ import annotations
 
 import json
@@ -8,16 +10,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-import numpy as np
+import pandas as pd
 
 from . import backtest
-from .brokers import BrokerError
-from .data import DataError
-from .engine import Engine, RiskRejected
-from .indicators import compute_all
+from .brokers.unavailable import FIDELITY_STATUS, IBKR_STATUS
+from .config import STRATEGY_MARKET, STRATEGY_VERSION
+from .instruments import usd_per_quote
+from .store import Store
 
 WEB = Path(__file__).resolve().parent.parent / "web"
-CHART_COLS = ["sma50", "sma200", "bb_up", "bb_lo", "rsi", "macd", "macd_signal", "macd_hist"]
 
 
 def _clean(o):
@@ -25,25 +26,107 @@ def _clean(o):
         return {k: _clean(v) for k, v in o.items()}
     if isinstance(o, (list, tuple)):
         return [_clean(v) for v in o]
-    if isinstance(o, (float, np.floating)):
-        return None if not math.isfinite(o) else float(o)
-    if isinstance(o, np.integer):
-        return int(o)
+    if isinstance(o, float):
+        return o if math.isfinite(o) else None
     return o
 
 
-def chart_payload(engine: Engine, symbol: str, range_: str, interval: str) -> dict:
-    df = engine.provider.history(symbol, range_, interval)
-    ind = compute_all(df).tail(1500)
-    col = lambda k, nd=6: [None if not math.isfinite(x) else round(float(x), nd) for x in ind[k].to_numpy()]
-    out = engine.analyze(symbol, range_, interval)
-    out["bars"] = {"t": [int(t.timestamp()) for t in ind.index], "o": col("open"), "h": col("high"), "l": col("low"), "c": col("close"), "v": col("volume", 0)}
-    out["ind"] = {k: col(k) for k in CHART_COLS}
-    out.update(range=range_, interval=interval)
-    return out
+def build_state(store: Store, cfg) -> dict:
+    g = store.get
+    mode, snap = g("mode", "?"), g("snapshot", {}) or {}
+    insts, rates, marks = g("instruments", {}), snap.get("rates", {}), snap.get("marks", {})
+    hb = g("heartbeat")
+    # In replay the clock is the replay's own; otherwise it is the wall clock.
+    now = pd.Timestamp(hb) if mode in ("REPLAY", "BACKTEST") and hb else pd.Timestamp.now(tz="UTC")
+    age = lambda t: None if not t else round((now - pd.Timestamp(t)).total_seconds(), 1)
+
+    def fx(sym):
+        try:
+            return usd_per_quote(insts[sym]["quote_ccy"], rates)
+        except Exception:
+            return None
+
+    positions, unreal_by, open_risk, gross = [], {}, 0.0, 0.0
+    unprotected = set(g("unprotected", []) or [])
+    for t in store.q("SELECT * FROM trades WHERE status!='closed' ORDER BY id"):
+        i, f, m = insts.get(t["symbol"]), fx(t["symbol"]), marks.get(t["symbol"])
+        mult = i["multiplier"] if i else 1.0
+        u = (m - t["entry_avg"]) * t["side"] * t["qty"] * mult * f if m is not None and f else None
+        risk = abs(t["entry_avg"] - t["stop"]) * t["qty"] * mult * (f or 0)
+        notional = (m or t["entry_avg"]) * t["qty"] * mult * (f or 0)
+        open_risk += risk
+        gross += notional
+        unreal_by[t["strategy"]] = unreal_by.get(t["strategy"], 0.0) + (u or 0.0)
+        stops = store.q("SELECT cid, status, qty, filled_qty FROM orders WHERE trade_id=? AND role='stop' AND status IN ('created','uncertain','new','partially_filled','pending_cancel')", (t["id"],))
+        positions.append({**t, "mark": m, "unrealized": u, "open_risk": risk, "notional": notional,
+                          "protected": t["id"] not in unprotected and bool(stops), "stop_qty": sum(s["qty"] - s["filled_qty"] for s in stops)})
+    strategies = []
+    evidence = backtest.load_evidence(cfg)
+    acts = store.q("SELECT * FROM activations")
+    for name, market in STRATEGY_MARKET.items():
+        r = store.one("SELECT COUNT(*) n, COALESCE(SUM(realized-fees),0) net, COALESCE(SUM(fees),0) fees, COALESCE(SUM(CASE WHEN realized-fees>0 THEN 1 ELSE 0 END),0) wins "
+                      "FROM trades WHERE status='closed' AND strategy=?", (name,))
+        sg = {x["status"]: x["n"] for x in store.q("SELECT status, COUNT(*) n FROM signals WHERE strategy=? GROUP BY status", (name,))}
+        ev = evidence.get(name)
+        strategies.append({"name": name, "market": market, "version": STRATEGY_VERSION[name], "enabled": cfg.strategies[name].enabled, "closed": r["n"],
+                           "wins": r["wins"], "realized_net": r["net"], "fees": r["fees"], "unrealized": unreal_by.get(name, 0.0), "signals": sg,
+                           "evidence": {"verdict": ev["verdict"], "reasons": ev["verdict_reasons"], "data": ev["data_source"], "generated": ev["generated"],
+                                        "current": ev["strategy_hash"] == cfg.strategy_hash(name)} if ev else None,
+                           "live_activated": [a for a in acts if a["strategy"] == name]})
+    realized = store.one("SELECT COALESCE(SUM(realized-fees),0) v FROM trades")["v"]
+    feeds = {k: {**v, "age_sec": age(v["last_bar"])} for k, v in (g("feeds", {}) or {}).items()}
+    return _clean({
+        "mode": mode, "now": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "data_label": g("data_label") or "; ".join(f"{k}: {b['data']}" for k, b in (g("brokers", {}) or {}).items()),
+        "replay": g("replay"), "brokers": g("brokers", {}), "reconcile": g("reconcile", {}),
+        "controls": {"kill": bool(g("kill")), "pause_entries": bool(g("pause_entries")), "halt_daily": g("halt_daily"), "halt_drawdown": g("halt_drawdown"),
+                     "halt_protection": g("halt_protection"), "paused_instruments": g("paused_instruments", {}), "day": g("day")},
+        "portfolio": {"equity": snap.get("equity"), "day_pnl": snap.get("day_pnl"), "drawdown": snap.get("drawdown"), "peak": snap.get("peak"),
+                      "accounts": snap.get("accounts", {}), "realized": realized, "unrealized": sum(unreal_by.values()), "open_risk": open_risk, "gross": gross,
+                      "quote_times": snap.get("quote_times", {}), "snapshot_at": snap.get("at"),
+                      "limits": {k: cfg.risk[k] for k in ("max_loss_per_trade_pct", "max_open_risk_pct", "max_gross_exposure_pct", "max_instrument_pct", "max_positions",
+                                                           "daily_loss_limit_pct", "max_drawdown_pct")},
+                      "limits_set_by_user": cfg.risk.set_by_user,
+                      "daily_reset": f"{cfg.portfolio.daily_reset_time} {cfg.portfolio.daily_reset_tz}, every day"},
+        "strategies": strategies,
+        "scanner": sorted((g("scanner", {}) or {}).values(), key=lambda x: (x["market"], x["symbol"], x["strategy"])),
+        "signals": store.q("SELECT * FROM signals ORDER BY time DESC, id LIMIT 300"),
+        "positions": positions,
+        "orders": store.q("SELECT * FROM orders ORDER BY created DESC, cid LIMIT 150"),
+        "journal": store.q("SELECT * FROM trades WHERE status='closed' ORDER BY closed DESC LIMIT 300"),
+        "alerts": store.q("SELECT * FROM events WHERE level='ALERT' ORDER BY id DESC LIMIT 100"),
+        "log": store.q("SELECT * FROM events ORDER BY id DESC LIMIT 200"),
+        "health": {"heartbeat": hb, "heartbeat_age_sec": None if mode == "REPLAY" else age(hb), "last_scan": g("last_scan_at"), "feeds": feeds,
+                   "feed_errors": g("feed_errors", {}), "unprotected": sorted(unprotected), "instrument_problems": g("instrument_problems", {}),
+                   "external_positions": list((g("external_positions", {}) or {}).values()), "manual_orders": g("manual_orders", {}),
+                   "exit_blocked": g("exit_blocked", {}), "active_contracts": g("active_contracts", {})},
+        "integrations": {"earnings": g("earnings_status"), "calendar": g("calendar_status"), "fidelity": FIDELITY_STATUS, "ibkr": IBKR_STATUS},
+        "equity": store.q("SELECT ts, equity FROM (SELECT * FROM equity ORDER BY ts DESC LIMIT 600) ORDER BY ts"),
+        "replay_checks": g("replay_checks"),
+    })
 
 
-def make_handler(engine: Engine):
+def build_chart(store: Store, symbol: str, tf: str | None) -> dict:
+    rows = store.q("SELECT * FROM barcache WHERE symbol=?" + (" AND tf=?" if tf else ""), (symbol, tf) if tf else (symbol,))
+    if not rows:
+        return {"symbol": symbol, "empty": True, "message": "No bars cached for this symbol yet. The worker stores bars when it scans."}
+    r = rows[0]
+    ep = lambda x: int(pd.Timestamp(x).timestamp()) if x else None
+    marks = []
+    for s in store.q("SELECT * FROM signals WHERE symbol=?", (symbol,)):
+        marks.append({"t": ep(s["time"]), "kind": "signal", "side": s["side"], "label": f"{s['strategy']} signal: {s['status']}", "price": s["ref_price"]})
+    for o in store.q("SELECT * FROM orders WHERE symbol=? AND filled_qty>0", (symbol,)):
+        marks.append({"t": ep(o["updated"]), "kind": o["role"], "side": 1 if o["side"] == "buy" else -1, "price": o["avg_price"],
+                      "label": f"{o['role']} fill {o['side']} {o['filled_qty']:g} @ {o['avg_price']:g}"})
+    lines = [{"from": ep(t["opened"]), "to": ep(t["closed"]), "stop": t["stop"], "target": t["target"], "entry": t["entry_avg"]}
+             for t in store.q("SELECT * FROM trades WHERE symbol=?", (symbol,))]
+    return _clean({"symbol": symbol, "tf": r["tf"], "updated": r["updated"], "bars": json.loads(r["payload"]), "marks": marks, "lines": lines,
+                   "timezone": "UTC", "tfs": [x["tf"] for x in store.q("SELECT tf FROM barcache WHERE symbol=?", (symbol,))]})
+
+
+def make_handler(db_path: str, cfg):
+    def store() -> Store:
+        return Store(db_path)
+
     class H(BaseHTTPRequestHandler):
         server_version = "RovioTrader"
 
@@ -51,7 +134,7 @@ def make_handler(engine: Engine):
             pass
 
         def _send(self, code, body, ctype="application/json"):
-            data = body if isinstance(body, bytes) else json.dumps(_clean(body)).encode()
+            data = body if isinstance(body, bytes) else json.dumps(body).encode()
             self.send_response(code)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(data)))
@@ -60,35 +143,32 @@ def make_handler(engine: Engine):
             self.wfile.write(data)
 
         def _guard(self, fn):
+            s = None
             try:
-                self._send(200, fn())
-            except RiskRejected as e:
-                self._send(422, {"error": "Blocked by risk checks", "reasons": e.reasons})
-            except (DataError, BrokerError, ValueError, KeyError) as e:
+                s = store()
+                self._send(200, fn(s))
+            except (ValueError, KeyError) as e:
                 self._send(400, {"error": str(e)})
-            except Exception as e:  # keep the server alive; do not leak internals
+            except Exception as e:
                 self._send(500, {"error": f"Internal error: {type(e).__name__}"})
+            finally:
+                if s is not None:
+                    s.close()
 
         def do_GET(self):
             u = urlparse(self.path)
             q = {k: v[0] for k, v in parse_qs(u.query).items()}
             if u.path in ("/", "/index.html"):
                 return self._send(200, (WEB / "index.html").read_bytes(), "text/html; charset=utf-8")
-            routes = {
-                "/api/info": engine.info,
-                "/api/scan": engine.scan,
-                "/api/portfolio": engine.portfolio,
-                "/api/proposals": engine.proposals,
-                "/api/strategies": lambda: {k: v[0] for k, v in backtest.STRATEGIES.items()},
-                "/api/chart": lambda: chart_payload(engine, q["symbol"], q.get("range", "2y"), q.get("interval", "1d")),
-                "/api/backtest": lambda: backtest.run(engine.provider.history(q["symbol"], q.get("range", "5y"), q.get("interval", "1d")), q.get("strategy", "composite")),
-            }
-            if u.path in routes:
-                return self._guard(routes[u.path])
+            if u.path == "/api/state":
+                return self._guard(lambda s: build_state(s, cfg))
+            if u.path == "/api/chart":
+                if not re.fullmatch(r"[A-Za-z0-9./\-=]{1,20}", q.get("symbol", "")):
+                    return self._send(400, {"error": "bad symbol"})
+                return self._guard(lambda s: build_chart(s, q["symbol"], q.get("tf")))
             self._send(404, {"error": "Not found"})
 
         def do_POST(self):
-            # Cross-site request protection: browsers must be on this origin and send JSON.
             origin, host = self.headers.get("Origin"), self.headers.get("Host", "")
             if (origin and urlparse(origin).netloc != host) or "application/json" not in self.headers.get("Content-Type", ""):
                 return self._send(403, {"error": "Forbidden"})
@@ -96,33 +176,39 @@ def make_handler(engine: Engine):
                 body = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 65536)) or b"{}")
             except ValueError:
                 return self._send(400, {"error": "Invalid JSON"})
-            p = urlparse(self.path).path
-            m = re.fullmatch(r"/api/proposals/(\w+)/(approve|reject)", p)
-            f = re.fullmatch(r"/api/orders/(\w+)/(fill|cancel)", p)
-            if p == "/api/proposals/generate":
-                return self._guard(engine.generate_proposals)
-            if m:
-                return self._guard(lambda: (engine.approve if m[2] == "approve" else engine.reject)(m[1]))
-            if p == "/api/orders":
-                return self._guard(lambda: engine.submit_order(body["symbol"], body["side"], float(body["qty"]), note="Manual order"))
-            if f:
-                if not hasattr(engine.broker, "confirm_fill"):
-                    return self._send(400, {"error": "Only the manual broker has tickets to fill"})
-                if f[2] == "cancel":
-                    return self._guard(lambda: engine.broker.cancel(f[1]))
-                return self._guard(lambda: engine.broker.confirm_fill(f[1], float(body["price"]), body.get("qty")))
-            if p == "/api/watchlist":
-                return self._guard(lambda: engine.edit_watchlist(body.get("add"), body.get("remove")))
-            if p == "/api/killswitch":
-                return self._guard(lambda: (engine.set_kill_switch(bool(body.get("on"))), engine.info())[1])
-            self._send(404, {"error": "Not found"})
+            if urlparse(self.path).path != "/api/control":
+                return self._send(404, {"error": "Not found"})
+
+            def act(s: Store):
+                a, ts = body.get("action"), pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%dT%H:%M:%SZ")
+                if a == "kill":
+                    s.set("kill", bool(body.get("on")))
+                elif a == "pause":
+                    s.set("pause_entries", bool(body.get("on")))
+                elif a == "resume":
+                    s.set("halt_drawdown", None)
+                    s.set("halt_protection", None)
+                    snap = s.get("snapshot")
+                    if snap:
+                        s.set("peak_equity", snap["equity"])
+                elif a == "flatten":
+                    ids = body.get("trade_ids")
+                    if ids is not None and not (isinstance(ids, list) and all(isinstance(i, int) for i in ids)):
+                        raise ValueError("trade_ids must be a list of integers")
+                    s.set("flatten_request", "all" if ids is None else ids)
+                else:
+                    raise ValueError("unknown action")
+                s.event(ts, "INFO", "operator", f"dashboard action: {a} {json.dumps({k: v for k, v in body.items() if k != 'action'})}")
+                return {"ok": True, "note": "The worker applies this on its next cycle." if s.get("mode") != "REPLAY" else
+                        "Recorded. Replay is a finished run with no worker, so nothing will act on it."}
+            self._guard(act)
 
     return H
 
 
-def serve(engine: Engine, host: str, port: int):
-    httpd = ThreadingHTTPServer((host, port), make_handler(engine))
-    print(f"Rovio Trader dashboard: http://{host}:{httpd.server_address[1]}  (broker={engine.broker.name}, data={engine.provider.name})")
+def serve(db_path: str, cfg, host: str, port: int):
+    httpd = ThreadingHTTPServer((host, port), make_handler(db_path, cfg))
+    print(f"Rovio Trader dashboard: http://{host}:{httpd.server_address[1]}   (journal: {db_path})")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
