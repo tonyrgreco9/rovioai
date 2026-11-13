@@ -4,6 +4,8 @@
   python -m rovio_trader serve --mode replay dashboard for the replay / paper / live journal
   python -m rovio_trader worker              background worker: scan, trade (PAPER), manage exits, reconcile
   python -m rovio_trader backtest breakout --data csv:mydata    train / validation / out-of-sample report
+  python -m rovio_trader worker --manual --cash 25000   Fidelity ticket mode: it scans and sizes, YOU place each order
+  python -m rovio_trader serve --mode manual            dashboard for ticket mode (tickets, live prices, charts)
   python -m rovio_trader check alpaca        prove a broker connection with real responses (no orders)
   python -m rovio_trader status              per-market status table
 """
@@ -20,6 +22,7 @@ from pathlib import Path
 import pandas as pd
 
 from . import backtest, config as C, instruments as I, risk as R
+from .brokers.manual import ManualBroker, instruction, ticket_action
 from .brokers import FIDELITY_STATUS, IBKR_STATUS, BrokerError, BrokerTimeout, BrokerUnavailable, connect
 from .data import BrokerData, CsvData
 from .engine import Engine
@@ -72,6 +75,8 @@ def cmd_replay(cfg, a):
 
 def cmd_serve(cfg, a):
     from .server import serve
+    if a.mode == "manual":
+        cfg = manual_cfg(cfg)
     db = _db(cfg, a.mode)
     if a.mode == "replay" and not db.exists():
         from . import replay
@@ -95,7 +100,45 @@ def cmd_init(cfg, a):
     return 0
 
 
+def manual_cfg(cfg):
+    """Ticket mode trades US stocks and ETFs only, through tickets, on a delayed last-trade feed."""
+    for m in ("futures", "forex", "crypto"):
+        cfg.markets[m].enabled = False
+    cfg.markets.stock.broker = "fidelity"
+    cfg.risk.per_broker_pct["fidelity"] = 100.0
+    cfg.risk.max_quote_age_sec = max(cfg.risk.max_quote_age_sec, 1200.0)     # the feed can lag ~15 minutes
+    return cfg
+
+
+def cmd_manual_worker(cfg, a):
+    cfg = manual_cfg(cfg)
+    store = Store(_db(cfg, "manual"))
+    if a.cash is not None:
+        if a.cash <= 0:
+            print("--cash must be greater than zero.", file=sys.stderr)
+            return 2
+        if store.get("manual_cash") != a.cash:
+            store.set("manual_cash", a.cash)
+            store.event(pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%dT%H:%M:%SZ"), "INFO", "operator", f"ticket mode cash set to ${a.cash:,.2f}")
+    if store.get("manual_cash") is None:
+        print("Ticket mode needs to know how much cash it may plan with. It cannot read your Fidelity balance.\n"
+              "Start it once with the amount, for example:  python -m rovio_trader worker --manual --cash 25000", file=sys.stderr)
+        return 2
+    brokers = {"fidelity": ManualBroker(store)}
+    engine = Engine(cfg, store, brokers, BrokerData(brokers), "MANUAL", EarningsSource.from_config(cfg), _calendar(cfg), notify=_notify_fn(cfg),
+                    watchlist=Watchlist(cfg), live_view=True)
+    store.set("data_label", None)
+    print(f"TICKET MODE worker running, planning with ${store.get('manual_cash'):,.2f}. It sends NO orders anywhere: each trade becomes a ticket "
+          "for you to place at Fidelity and record in the dashboard. Ctrl+C to stop.")
+    return _loop(cfg, engine, store, brokers, a, "Worker stopped. Orders you placed at Fidelity are still there.")
+
+
 def cmd_worker(cfg, a):
+    if a.manual:
+        if a.live:
+            print("--manual and --live cannot be combined.", file=sys.stderr)
+            return 2
+        return cmd_manual_worker(cfg, a)
     live = a.live
     mode = "LIVE" if live else "PAPER"
     store = Store(_db(cfg, mode))
@@ -113,11 +156,15 @@ def cmd_worker(cfg, a):
     if not brokers:
         print("No broker is available, so there is nothing to run. Add credentials to .env (see README) or use `replay`.", file=sys.stderr)
         return 2
-    engine = Engine(cfg, store, brokers, BrokerData(brokers), mode, EarningsSource.from_config(cfg), _calendar(cfg), notify=_notify_fn(cfg), watchlist=Watchlist(cfg))
+    engine = Engine(cfg, store, brokers, BrokerData(brokers), mode, EarningsSource.from_config(cfg), _calendar(cfg), notify=_notify_fn(cfg), watchlist=Watchlist(cfg), live_view=True)
     store.set("data_label", None)
     print(f"{mode} worker running. Orders that qualify are sent automatically, with no per-trade approval. Ctrl+C to stop.")
     if live:
         print("LIVE activations:", ", ".join(f"{x['broker']}/{x['account']}/{x['market']}/{x['strategy']}" for x in acts))
+    return _loop(cfg, engine, store, brokers, a, "Worker stopped. Protective stop orders already at the broker remain there.")
+
+
+def _loop(cfg, engine, store, brokers, a, bye):
     seen = set()
     cal_loaded = time.time()
     while True:
@@ -131,7 +178,7 @@ def cmd_worker(cfg, a):
                     seen.add(k)
                     _record_connection(cfg, k, b.mode, b.account_alias)
         except KeyboardInterrupt:
-            print("\nWorker stopped. Protective stop orders already at the broker remain there.")
+            print("\n" + bye)
             return 0
         except Exception as e:   # keep running: one bad cycle must not stop exit management
             try:
@@ -143,7 +190,7 @@ def cmd_worker(cfg, a):
         try:
             time.sleep(max(cfg.poll_seconds, 5))
         except KeyboardInterrupt:
-            print("\nWorker stopped. Protective stop orders already at the broker remain there.")
+            print("\n" + bye)
             return 0
 
 
@@ -180,6 +227,23 @@ def cmd_check(cfg, a):
     if a.broker == "fidelity":
         print(json.dumps(FIDELITY_STATUS, indent=1))
         return 1
+    if a.broker == "feed":
+        b = ManualBroker(Store(":memory:"))
+        try:
+            ok = 0
+            for sym in cfg.markets.stock.watchlist[:3]:
+                inst = b.instrument(sym)
+                if inst is None:
+                    print(f"  {sym}: the feed does not list it as a US stock or ETF")
+                    continue
+                q, d = b.quote(inst), b.bars(inst, "1d", 300)
+                print(f"  {sym}: last {q['bid']:g} at {q['ts']:%Y-%m-%d %H:%M} UTC; market open={b.market_open(inst)}; {0 if d is None else len(d)} daily bars" if q else f"  {sym}: no quote")
+                ok += bool(q and d is not None and len(d) > 60)
+            print("Price feed reachable: real responses received. It is unofficial and can be delayed." if ok else "Price feed returned nothing usable.")
+            return 0 if ok else 1
+        except (BrokerError, BrokerTimeout) as e:
+            print(f"Price feed FAILED - {C.redact(e)}")
+            return 1
     if not s or not s["available"]:
         print(f"{a.broker}: NOT CONNECTED - {s['reason'] if s else 'no enabled market uses this broker'}")
         return 1
@@ -281,6 +345,28 @@ def cmd_control(cfg, a):
     return 0
 
 
+def cmd_tickets(cfg, a):
+    s = Store(_db(cfg, "manual"))
+    try:
+        if a.action != "list":
+            if not a.cid:
+                print("Give the ticket reference (shown by `tickets list`).")
+                return 2
+            ticket_action(s, a.cid, a.action, a.qty, a.price, a.fees)
+            s.event(pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%dT%H:%M:%SZ"), "INFO", "operator", f"ticket {a.cid}: {a.action} {a.qty or ''} {a.price or ''}".strip())
+            print("Recorded. The worker picks it up on its next cycle.")
+    except ValueError as e:
+        print(f"Not changed: {e}")
+        return 2
+    rows = s.q("SELECT * FROM tickets WHERE status IN ('new','partially_filled') ORDER BY created")
+    for t in rows:
+        print(f"  {t['cid']}  {instruction(t)}")
+    if not rows:
+        print("No open tickets.")
+    s.close()
+    return 0
+
+
 def cmd_watchlist(cfg, a):
     w = Watchlist(cfg)
     try:
@@ -339,18 +425,21 @@ def main(argv=None) -> int:
     ap.add_argument("--env-file", default=str(C.ROOT / ".env"))
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("replay"); p.add_argument("--serve", action="store_true"); p.add_argument("--port", type=int, default=8787)
-    p = sub.add_parser("serve"); p.add_argument("--mode", choices=["replay", "paper", "live"], default="paper"); p.add_argument("--host", default="127.0.0.1"); p.add_argument("--port", type=int, default=8787)
+    p = sub.add_parser("serve"); p.add_argument("--mode", choices=["replay", "paper", "live", "manual"], default="paper"); p.add_argument("--host", default="127.0.0.1"); p.add_argument("--port", type=int, default=8787)
     sub.add_parser("init")
     p = sub.add_parser("worker"); p.add_argument("--live", action="store_true"); p.add_argument("--once", action="store_true")
+    p.add_argument("--manual", action="store_true", help="Fidelity ticket mode: no orders are sent; you place each one"); p.add_argument("--cash", type=float, help="cash the ticket mode may plan with")
+    p = sub.add_parser("tickets"); p.add_argument("action", nargs="?", default="list", choices=["list", "placed", "fill", "cancel"]); p.add_argument("cid", nargs="?")
+    p.add_argument("--qty", type=float); p.add_argument("--price", type=float); p.add_argument("--fees", type=float, default=0.0)
     p = sub.add_parser("backtest"); p.add_argument("strategy", choices=list(C.STRATEGY_MARKET) + ["all"]); p.add_argument("--data", default="synthetic", help="synthetic | csv:<directory>")
     p.add_argument("--tune", action="store_true"); p.add_argument("--save", action="store_true", help="record the result as this strategy's evidence")
-    p = sub.add_parser("check"); p.add_argument("broker", choices=["alpaca", "oanda", "ibkr", "fidelity"])
+    p = sub.add_parser("check"); p.add_argument("broker", choices=["alpaca", "oanda", "ibkr", "fidelity", "feed"])
     sub.add_parser("sizing-demo")
     sub.add_parser("status")
     for name in ("kill", "pause"):
-        p = sub.add_parser(name); p.add_argument("state", choices=["on", "off"]); p.add_argument("--mode", choices=["paper", "live"], default="paper")
-    p = sub.add_parser("resume"); p.add_argument("--mode", choices=["paper", "live"], default="paper")
-    p = sub.add_parser("flatten"); p.add_argument("ids", nargs="*"); p.add_argument("--mode", choices=["paper", "live"], default="paper")
+        p = sub.add_parser(name); p.add_argument("state", choices=["on", "off"]); p.add_argument("--mode", choices=["paper", "live", "manual"], default="paper")
+    p = sub.add_parser("resume"); p.add_argument("--mode", choices=["paper", "live", "manual"], default="paper")
+    p = sub.add_parser("flatten"); p.add_argument("ids", nargs="*"); p.add_argument("--mode", choices=["paper", "live", "manual"], default="paper")
     p = sub.add_parser("watchlist"); p.add_argument("action", choices=["list", "add", "remove"]); p.add_argument("market", nargs="?", choices=list(MARKETS))
     p.add_argument("symbol", nargs="?"); p.add_argument("--etf", action="store_true", help="stock is an ETF (excluded from the earnings strategy)")
     p = sub.add_parser("activate-live"); p.add_argument("--broker", required=True); p.add_argument("--market", required=True); p.add_argument("--strategy", required=True)
@@ -364,7 +453,7 @@ def main(argv=None) -> int:
         return 2
     fn = {"replay": cmd_replay, "serve": cmd_serve, "init": cmd_init, "worker": cmd_worker, "backtest": cmd_backtest, "check": cmd_check,
           "sizing-demo": cmd_sizing, "status": cmd_status, "kill": cmd_control, "pause": cmd_control, "resume": cmd_control, "flatten": cmd_control,
-          "activate-live": cmd_activate, "watchlist": cmd_watchlist}[a.cmd]
+          "activate-live": cmd_activate, "watchlist": cmd_watchlist, "tickets": cmd_tickets}[a.cmd]
     return fn(cfg, a)
 
 

@@ -30,6 +30,9 @@ CREATE TABLE IF NOT EXISTS equity(ts TEXT, equity REAL, detail TEXT);
 CREATE TABLE IF NOT EXISTS barcache(symbol TEXT, tf TEXT, updated TEXT, payload TEXT, PRIMARY KEY(symbol, tf));
 CREATE TABLE IF NOT EXISTS activations(broker TEXT, account TEXT, market TEXT, strategy TEXT, strategy_hash TEXT, limits TEXT, activated TEXT,
   PRIMARY KEY(broker, account, market, strategy));
+CREATE TABLE IF NOT EXISTS tickets(
+  cid TEXT PRIMARY KEY, symbol TEXT, side TEXT, type TEXT, qty REAL, stop_price REAL, role TEXT, status TEXT, filled_qty REAL DEFAULT 0,
+  avg_price REAL, fees REAL DEFAULT 0, placed INTEGER DEFAULT 0, cancel_requested INTEGER DEFAULT 0, note TEXT, created TEXT, updated TEXT);
 """
 JSON_COLS = {"inputs", "meta", "checks", "sizing", "detail", "limits"}
 ACTIVE = ("created", "uncertain", "new", "partially_filled", "pending_cancel")

@@ -12,7 +12,7 @@
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
 #mode{padding:8px 16px;font-weight:700;color:#fff;display:flex;gap:8px 16px;flex-wrap:wrap;align-items:baseline}
-#mode.REPLAY{background:#8a5a00}#mode.PAPER{background:#1f5fae}#mode.LIVE{background:#b3261e}#mode.unknown{background:#555}
+#mode.REPLAY{background:#8a5a00}#mode.PAPER{background:#1f5fae}#mode.LIVE{background:#b3261e}#mode.MANUAL{background:#6b3fa0}#mode.unknown{background:#555}
 #mode small{font-weight:400;opacity:.92}
 header{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:10px 16px;background:var(--surface);border-bottom:1px solid var(--border)}
 header h1{font-size:16px;margin:0}.spacer{flex:1}
@@ -43,7 +43,11 @@ button:hover{border-color:var(--accent)}button.on{background:var(--bad);border-c
 .kv div{border:1px solid var(--grid);border-radius:6px;padding:6px 8px}.kv b{display:block;font-variant-numeric:tabular-nums}
 .detail{border:1px solid var(--border);border-radius:8px;padding:10px;margin:8px 0;background:var(--bg)}
 .detail h3{font-size:13px;margin:10px 0 4px}.detail h3:first-child{margin-top:0}
-.chartwrap{position:relative}canvas{display:block;width:100%}
+.chartwrap{position:relative}canvas{display:block;width:100%;cursor:crosshair;touch-action:none}canvas.drag{cursor:grabbing}
+.seg button{border-radius:0;margin-left:-1px}.seg button:first-child{border-radius:6px 0 0 6px;margin-left:0}.seg button:last-child{border-radius:0 6px 6px 0}.seg button.act{background:var(--accent);border-color:var(--accent);color:#fff}
+.live{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--muted);margin-right:4px}.live.on{background:var(--good)}.live.late{background:var(--warn)}
+input.f{font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px 8px;width:110px}
+.tk{border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:8px;padding:10px;margin:8px 0;background:var(--bg)}.tk.urgent{border-left-color:var(--bad)}.tk.rest{border-left-color:var(--good)}
 #tip{position:absolute;pointer-events:none;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;display:none;white-space:nowrap;z-index:2}
 .legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--text2);margin:6px 0}
 .state{padding:28px;text-align:center;color:var(--text2);border:1px dashed var(--border);border-radius:8px}
@@ -83,8 +87,8 @@ const usd=x=>x==null?'–':(x<0?'−$':'$')+Math.abs(x).toLocaleString(undefined
 const pnl=x=>x==null?'–':`<span class="${x>=0?'pos':'neg'}">${x>=0?'+':'−'}$${Math.abs(x).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>`;
 const tm=t=>t?t.slice(0,16).replace('T',' '):'–';
 const qty=x=>x==null?'–':Number(x).toLocaleString(undefined,{maximumFractionDigits:4});
-let S=null,tab='Decisions',selSig=null,chartSym=null,chartTf=null,chart=null,hover=-1,view=120,fails=0;
-const TABS=['Decisions','Watchlist','Positions & orders','Chart','Journal','Strategies','Health','Alerts'];
+let S=null,tab=null,selSig=null,chartSym=null,chartTf=null,chart=null,hover=-1,hoverY=null,view=120,off=0,fails=0,Q={},chartAt=0,ma=true;const tk={};
+const BASE=['Decisions','Watchlist','Positions & orders','Chart','Journal','Strategies','Health','Alerts'];let TABS=BASE;
 function toast(m){const t=$('toast');t.textContent=m;t.style.display='block';clearTimeout(toast.h);toast.h=setTimeout(()=>t.style.display='none',6000)}
 async function api(p,b){const r=await fetch(p,b?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}:undefined);const j=await r.json().catch(()=>({error:'Bad response'}));if(!r.ok)throw new Error(j.error||r.statusText);return j}
 async function control(body,confirmText){if(confirmText&&!confirm(confirmText))return;try{const r=await api('/api/control',body);toast(r.note||'Done');await load()}catch(e){toast(e.message)}}
@@ -95,11 +99,12 @@ async function load(){
 }
 function render(){
   const s=S,c=s.controls,p=s.portfolio,h=s.health;
-  $('mode').className=['REPLAY','PAPER','LIVE'].includes(s.mode)?s.mode:'unknown';
-  const idle=!s.health.heartbeat;$('modeText').textContent=s.mode==='REPLAY'?'REPLAY — simulated fills, scripted fixture prices':s.mode==='PAPER'?'PAPER — broker paper/practice accounts, no real money'+(idle?' · WORKER NOT STARTED':''):s.mode==='LIVE'?'LIVE — REAL MONEY':'Mode: '+s.mode;
+  $('mode').className=['REPLAY','PAPER','LIVE','MANUAL'].includes(s.mode)?s.mode:'unknown';const man=s.mode==='MANUAL';
+  TABS=man?['Tickets',...BASE]:BASE;if(!tab||!TABS.includes(tab))tab=man?'Tickets':'Decisions';Q=s.quotes||Q;
+  const idle=!s.health.heartbeat;$('modeText').textContent=s.mode==='REPLAY'?'REPLAY — simulated fills, scripted fixture prices':s.mode==='PAPER'?'PAPER — broker paper/practice accounts, no real money'+(idle?' · WORKER NOT STARTED':''):s.mode==='LIVE'?'LIVE — REAL MONEY':man?'FIDELITY TICKETS — no order is sent anywhere; you place each one yourself, with real money'+(idle?' · WORKER NOT STARTED':''):'Mode: '+s.mode;
   const qts=Object.values(p.quote_times||{}).sort().pop();
-  $('modeSub').textContent=idle&&s.mode!=='REPLAY'?'Nothing is being scanned or traded yet. Add broker paper keys to .env and run: python -m rovio_trader worker':`Data: ${s.data_label||'unknown'} · last quote ${tm(qts)} UTC · clock ${tm(s.now)} UTC`;
-  $('brokers').innerHTML=Object.entries(s.brokers||{}).map(([k,b])=>`<span class="chip ${b.ok===false?'bad':''}" title="${esc(b.data)}">${esc(k)} · ${esc(b.mode)} · acct ${esc(b.account||'?')}${b.mode==='REPLAY'?' · simulated':b.verified?' · verified':' · not verified'}</span>`).join(' ')||'<span class="chip bad">no broker connected</span>';
+  $('modeSub').textContent=idle&&man?'Nothing is being scanned yet. In a second window run: python -m rovio_trader worker --manual --cash AMOUNT':idle&&s.mode!=='REPLAY'?'Nothing is being scanned or traded yet. Add broker paper keys to .env and run: python -m rovio_trader worker':`Data: ${s.data_label||'unknown'} · last quote ${tm(qts)} UTC · clock ${tm(s.now)} UTC`;
+  $('brokers').innerHTML=Object.entries(s.brokers||{}).map(([k,b])=>`<span class="chip ${b.ok===false?'bad':''}" title="${esc(b.data)}">${esc(k)} · ${esc(b.mode)} · acct ${esc(b.account||'?')}${b.manual?(b.feed_verified?' · price feed responding':' · price feed not yet verified'):b.mode==='REPLAY'?' · simulated':b.verified?' · verified':' · not verified'}</span>`).join(' ')||'<span class="chip bad">no broker connected</span>';
   const halts=[c.kill&&'KILL SWITCH ON — working entries cancelled, no new entries; protective exits remain.',c.pause_entries&&'Entries paused — exits are still managed.',c.halt_daily,c.halt_drawdown,c.halt_protection].filter(Boolean);
   $('halts').innerHTML=halts.map(x=>`<div class="halt">⛔ ${esc(x)}</div>`).join('');
   $('bKill').textContent='Kill switch: '+(c.kill?'ON':'off');$('bKill').classList.toggle('on',c.kill);
@@ -119,8 +124,8 @@ function render(){
   if(s.mode!=='REPLAY'&&(h.heartbeat_age_sec==null||h.heartbeat_age_sec>180))bad.push('worker not running');
   $('cHealth').innerHTML=bad.length?`<span class="neg">⚠ ${bad.length} issue${bad.length>1?'s':''}</span>`:'<span class="pos">✓ OK</span>';
   $('cHealthSub').innerHTML=(bad.length?esc(bad.join(' · '))+'<br>':'')+(s.mode==='REPLAY'?'Replay is a finished run; there is no live worker.':`worker heartbeat ${h.heartbeat_age_sec==null?'never':Math.round(h.heartbeat_age_sec)+'s ago'}`)+`<br>${s.alerts.length} alert(s)`;
-  $('tabs').innerHTML=TABS.map(t=>`<button class="${t===tab?'act':''}" data-tab="${t}">${t}${t==='Alerts'&&s.alerts.length?' ('+s.alerts.length+')':''}</button>`).join('');
-  ({'Decisions':vDecisions,'Watchlist':vWatchlist,'Positions & orders':vPositions,'Chart':vChart,'Journal':vJournal,'Strategies':vStrategies,'Health':vHealth,'Alerts':vAlerts})[tab]();
+  $('tabs').innerHTML=TABS.map(t=>`<button class="${t===tab?'act':''}" data-tab="${t}">${t}${t==='Alerts'&&s.alerts.length?' ('+s.alerts.length+')':''}${t==='Tickets'&&s.tickets.filter(x=>x.needs_action).length?' ('+s.tickets.filter(x=>x.needs_action).length+' to do)':''}</button>`).join('');
+  ({'Tickets':vTickets,'Decisions':vDecisions,'Watchlist':vWatchlist,'Positions & orders':vPositions,'Chart':vChart,'Journal':vJournal,'Strategies':vStrategies,'Health':vHealth,'Alerts':vAlerts})[tab]();
 }
 const checksTable=cs=>cs&&cs.length?`<table><thead><tr><th>Check</th><th class="n">Actual</th><th class="n">Threshold</th><th>Result</th></tr></thead><tbody>${cs.map(c=>`<tr><td>${esc(c.name)}</td><td class="n">${typeof c.value==='number'?px(c.value):esc(c.value??'–')}</td><td class="n">${typeof c.threshold==='number'?px(c.threshold):esc(c.threshold??'–')}</td><td>${c.passed?'<span class="pos">✓ pass</span>':'<span class="neg">✗ fail</span>'}</td></tr>`).join('')}</tbody></table>`:'<div class="muted">none recorded</div>';
 function sigDetail(x){
@@ -141,6 +146,34 @@ function vDecisions(){
   <h3 style="font-size:13px;margin:16px 0 6px">Scanner: latest check per instrument</h3>
   ${S.scanner.length?`<div class="scroll"><table><thead><tr><th>Symbol</th><th>Market</th><th>Strategy</th><th>Last completed bar (UTC)</th><th>Conditions on that bar</th></tr></thead><tbody>${S.scanner.map(x=>`<tr class="click" data-chart="${esc(x.symbol)}"><td><b>${esc(x.symbol)}</b></td><td>${esc(x.market)}</td><td>${esc(x.strategy)}</td><td>${tm(x.last_bar)}</td><td class="w">${x.checks.length?x.checks.map(c=>`${c.passed?'<span class="pos">✓</span>':'<span class="neg">✗</span>'} ${esc(c.name)}${typeof c.value==='number'?' ('+px(c.value)+' vs '+px(c.threshold)+')':''}`).join('<br>'):'<span class="muted">evaluated; details on signals only</span>'}</td></tr>`).join('')}</tbody></table></div>`:'<div class="state">The scanner has not run yet.</div>'}`;
 }
+function qcell(sym,f){const q=Q[sym];if(!q)return '<span class="muted">–</span>';
+  if(f==='p')return `<b>${px(q.price)}</b>`;
+  if(f==='t'){const age=S?(Date.parse(S.now)-Date.parse(q.ts))/1000:0;return `<span class="live ${age<90?'on':age<1500?'late':''}"></span>${q.ts.slice(11,19)}`}
+  if(q.prev_close==null)return '<span class="muted">–</span>';const d=q.price-q.prev_close;return `<span class="${d>=0?'pos':'neg'}">${d>=0?'+':'−'}${px(Math.abs(d))} (${d>=0?'+':'−'}${num(Math.abs(d)/q.prev_close*100)}%)</span>`}
+function vTickets(){
+  const A=S.tickets.filter(t=>t.active),D=S.tickets.filter(t=>!t.active).slice(0,40);
+  const card=t=>{const left=t.qty-t.filled_qty,v=tk[t.cid]||{},cls=t.cancel_requested||(!t.placed&&t.type==='stop')?'urgent':t.placed&&t.type==='stop'?'rest':'';
+    return `<div class="tk ${cls}"><div><b style="font-size:15px">${esc(t.side.toUpperCase())} ${qty(left)} ${esc(t.symbol)}</b> <span class="tag">${esc(t.role==='entry'?'new position':t.role==='stop'?'protective stop':'close position')}</span> ${t.cancel_requested?'<span class="tag neg">cancel this order</span>':t.placed?'<span class="tag pos">you placed it</span>':'<span class="tag t-pending">to do</span>'} <button data-chart="${esc(t.symbol)}" style="float:right">Chart</button></div>
+    <div style="margin:6px 0">${esc(t.instruction)}</div>
+    <div class="sub">${t.role==='entry'?`Price when the ticket was written ≈ ${px(t.expected_price)} · planned stop ${px(t.plan_stop)}${t.plan_target!=null?' · target '+px(t.plan_target):''} · live ${Q[t.symbol]?'<b data-q="'+esc(t.symbol)+'" data-qf="p">'+qcell(t.symbol,'p')+'</b>':'–'}${t.expires?' · withdrawn if not filled by '+tm(t.expires)+' UTC':''}`:t.type==='stop'?`Stop price ${px(t.stop_price)} · live <b data-q="${esc(t.symbol)}" data-qf="p">${qcell(t.symbol,'p')}</b>`:`Reason: ${esc(t.why||'exit')} · live <b data-q="${esc(t.symbol)}" data-qf="p">${qcell(t.symbol,'p')}</b>`}${t.filled_qty?` · filled so far ${qty(t.filled_qty)} @ ${px(t.avg_price)}`:''}</div>
+    ${t.role==='entry'&&t.why?`<div class="muted" style="margin-top:4px">${esc(t.strategy||'')}: ${esc(t.why)}</div>`:''}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px">
+    ${!t.placed&&!t.cancel_requested?`<button data-tk="${esc(t.cid)}" data-act="placed">I placed this order</button>`:''}
+    <label class="sub">Filled qty <input class="f" inputmode="decimal" data-tki="${esc(t.cid)}" data-f="qty" value="${esc(v.qty??left)}"></label>
+    <label class="sub">at price <input class="f" inputmode="decimal" data-tki="${esc(t.cid)}" data-f="price" value="${esc(v.price??'')}" placeholder="fill price"></label>
+    <button data-tk="${esc(t.cid)}" data-act="fill">Record fill</button>
+    <button class="danger" data-tk="${esc(t.cid)}" data-act="cancel">${t.cancel_requested?'I cancelled it at Fidelity':t.placed?'I cancelled it / it did not fill':'I am not placing this'}</button></div></div>`};
+  $('view').innerHTML=`<div class="sub" style="margin-bottom:6px">This software cannot reach your Fidelity account. Each ticket below is an order for <b>you</b> to place at Fidelity; then tell it what happened so it can track the position, write the stop ticket and later the exit ticket. Planning cash: <b>${usd(S.manual_cash)}</b> (the figure you gave; it is not read from Fidelity). A fill you do not record makes every number here wrong.</div>
+  ${A.length?A.map(card).join(''):`<div class="state">No open tickets. ${S.health.heartbeat?'The scanner writes one when a setup qualifies; stock entries appear shortly after the market opens.':'The worker is not running.'}</div>`}
+  <h3 style="font-size:13px;margin:16px 0 6px">Finished tickets</h3>
+  ${D.length?`<div class="scroll"><table><thead><tr><th>Updated (UTC)</th><th>Symbol</th><th>Order</th><th class="n">Qty</th><th class="n">Filled</th><th class="n">Fill price</th><th>Result</th><th>Note</th></tr></thead><tbody>${D.map(t=>`<tr><td>${tm(t.updated)}</td><td><b>${esc(t.symbol)}</b></td><td>${esc(t.side)} ${esc(t.type)} (${esc(t.role)})</td><td class="n">${qty(t.qty)}</td><td class="n">${qty(t.filled_qty)}</td><td class="n">${px(t.avg_price)}</td><td>${esc(t.status)}</td><td class="w">${esc(t.note||'')}</td></tr>`).join('')}</tbody></table></div>`:'<div class="muted">None yet.</div>'}`;
+}
+document.addEventListener('input',e=>{const i=e.target.closest('[data-tki]');if(i)(tk[i.dataset.tki]=tk[i.dataset.tki]||{})[i.dataset.f]=i.value});
+async function ticket(cid,act){const t=S.tickets.find(x=>x.cid===cid);if(!t)return;const body={cid,action:act};
+  if(act==='fill'){const q=document.querySelector(`[data-tki="${cid}"][data-f="qty"]`).value,p=document.querySelector(`[data-tki="${cid}"][data-f="price"]`).value;if(!(+q>0)||!(+p>0))return toast('Enter the quantity that filled and the price you got.');
+    if(!confirm(`Record that you ${t.side==='buy'?'bought':'sold'} ${q} ${t.symbol} at ${p}? Check it against your Fidelity confirmation.`))return;body.qty=+q;body.price=+p}
+  if(act==='cancel'&&!confirm(t.cancel_requested?`Confirm you cancelled the ${t.symbol} order at Fidelity?`:t.type==='stop'?`Without this stop, ${t.symbol} has no protection. A new stop ticket will be written. Continue?`:`Close this ${t.symbol} ticket without a (further) fill?`))return;
+  try{const r=await api('/api/ticket',body);delete tk[cid];toast(r.note||'Recorded');await load()}catch(e){toast(e.message)}}
 function vWatchlist(){
   const M={stock:['Stocks & ETFs','e.g. TSLA, BRK.B'],forex:['Forex pairs','e.g. AUD/USD (must include USD)'],crypto:['Crypto','e.g. ETH/USD'],futures:['Futures roots','MES or MNQ']};
   const tag={watching:'<span class="pos">✓ watching</span>',problem:'<span class="neg">✗ problem</span>',pending:'<span class="tag t-pending">pending</span>',saved:'<span class="muted">saved</span>'};
@@ -149,7 +182,7 @@ function vWatchlist(){
   Object.entries(M).map(([m,[title,hint]])=>{const rows=S.watchlist.filter(x=>x.market===m),info=S.watchlist_markets[m];
     return `<h3 style="font-size:13px;margin:14px 0 6px">${title} <span class="muted">· broker ${esc(info.broker)}${info.enabled?'':' · market disabled in config'}</span></h3>
     <form data-wl-form="${m}" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px"><input data-wl-in="${m}" placeholder="${hint}" aria-label="Add ${title}" style="font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px 8px;min-width:220px">${m==='stock'?'<label class="sub"><input type="checkbox" data-wl-etf> ETF (skip earnings strategy)</label>':''}<button>Add</button></form>
-    ${rows.length?`<table><thead><tr><th>Symbol</th><th>Status</th><th>Detail</th><th></th></tr></thead><tbody>${rows.map(r=>`<tr><td><b>${esc(r.symbol)}</b>${r.etf?' <span class="muted">ETF</span>':''}${r.held?' <span class="tag t-pending">position open</span>':''}</td><td>${tag[r.status]||esc(r.status)}</td><td class="w">${esc(r.detail)}</td><td class="n"><button data-wl-rm="${esc(r.symbol)}" data-wl-m="${m}">Remove</button></td></tr>`).join('')}</tbody></table>`:'<div class="muted">Nothing on this list.</div>'}`}).join('');
+    ${rows.length?`<table><thead><tr><th>Symbol</th><th class="n">Last</th><th class="n">Change</th><th>Quote time (UTC)</th><th>Status</th><th>Detail</th><th></th></tr></thead><tbody>${rows.map(r=>`<tr><td><b class="click" style="cursor:pointer" data-chart="${esc(r.symbol)}" title="Open chart">${esc(r.symbol)}</b>${r.etf?' <span class="muted">ETF</span>':''}${r.held?' <span class="tag t-pending">position open</span>':''}</td><td class="n" data-q="${esc(r.symbol)}" data-qf="p">${qcell(r.symbol,'p')}</td><td class="n" data-q="${esc(r.symbol)}" data-qf="c">${qcell(r.symbol,'c')}</td><td data-q="${esc(r.symbol)}" data-qf="t">${qcell(r.symbol,'t')}</td><td>${tag[r.status]||esc(r.status)}</td><td class="w">${esc(r.detail)}</td><td class="n"><button data-wl-rm="${esc(r.symbol)}" data-wl-m="${m}">Remove</button></td></tr>`).join('')}</tbody></table>`:'<div class="muted">Nothing on this list.</div>'}`}).join('');
   document.querySelectorAll('[data-wl-in]').forEach(i=>{if(keep[i.dataset.wlIn])i.value=keep[i.dataset.wlIn]});
 }
 async function wl(body){try{const r=await api('/api/watchlist',body);toast(`${body.action==='add'?'Added':'Removed'} ${r.symbol}`);await load()}catch(e){toast(e.message)}}
@@ -157,7 +190,7 @@ document.addEventListener('submit',e=>{const f=e.target.closest('[data-wl-form]'
 function vPositions(){
   const P=S.positions,ext=S.health.external_positions;
   $('view').innerHTML=`<h3 style="font-size:13px;margin:0 0 6px">Open positions managed by the bot</h3>
-  ${P.length?`<div class="scroll"><table><thead><tr><th>#</th><th>Symbol</th><th>Strategy</th><th>Dir</th><th class="n">Qty</th><th class="n">Entry</th><th class="n">Mark</th><th class="n">Stop</th><th class="n">Target</th><th class="n">Unrealized</th><th class="n">Planned loss</th><th>Protection</th><th>State</th><th></th></tr></thead><tbody>${P.map(t=>`<tr><td>${t.id}</td><td><b>${esc(t.symbol)}</b></td><td>${esc(t.strategy)}</td><td>${t.side>0?'Long':'Short'}</td><td class="n">${qty(t.qty)}</td><td class="n">${px(t.entry_avg)}</td><td class="n">${px(t.mark)}</td><td class="n">${px(t.stop)}</td><td class="n">${px(t.target)}</td><td class="n">${pnl(t.unrealized)}</td><td class="n">${usd(t.open_risk)}</td><td>${t.protected?`<span class="pos">✓ stop for ${qty(t.stop_qty)}</span>`:t.status==='open'?'<span class="neg">✗ UNPROTECTED</span>':'<span class="muted">closing</span>'}</td><td>${esc(t.status)}${t.exit_reason?' — '+esc(t.exit_reason):''}</td><td><button data-flat="${t.id}"${S.mode==='REPLAY'?' disabled':''}>Flatten</button></td></tr>`).join('')}</tbody></table></div>`:'<div class="state">No open positions.</div>'}
+  ${P.length?`<div class="scroll"><table><thead><tr><th>#</th><th>Symbol</th><th>Strategy</th><th>Dir</th><th class="n">Qty</th><th class="n">Entry</th><th class="n">Mark</th><th class="n">Stop</th><th class="n">Target</th><th class="n">Unrealized</th><th class="n">Planned loss</th><th>Protection</th><th>State</th><th></th></tr></thead><tbody>${P.map(t=>`<tr><td>${t.id}</td><td><b>${esc(t.symbol)}</b></td><td>${esc(t.strategy)}</td><td>${t.side>0?'Long':'Short'}</td><td class="n">${qty(t.qty)}</td><td class="n">${px(t.entry_avg)}</td><td class="n">${px(t.mark)}</td><td class="n">${px(t.stop)}</td><td class="n">${px(t.target)}</td><td class="n">${pnl(t.unrealized)}</td><td class="n">${usd(t.open_risk)}</td><td>${t.protected&&t.stop_unplaced?'<span class="neg">✗ stop ticket not placed yet</span>':t.protected?`<span class="pos">✓ stop for ${qty(t.stop_qty)}</span>`:t.status==='open'?'<span class="neg">✗ UNPROTECTED</span>':'<span class="muted">closing</span>'}</td><td>${esc(t.status)}${t.exit_reason?' — '+esc(t.exit_reason):''}</td><td><button data-flat="${t.id}"${S.mode==='REPLAY'?' disabled':''}>Flatten</button></td></tr>`).join('')}</tbody></table></div>`:'<div class="state">No open positions.</div>'}
   <h3 style="font-size:13px;margin:16px 0 6px">Holdings the bot did not open (never sold or flattened by the bot)</h3>
   ${ext.length?`<table><thead><tr><th>Broker</th><th>Symbol</th><th class="n">Qty</th><th>Effect</th></tr></thead><tbody>${ext.map(e=>`<tr><td>${esc(e.broker)}</td><td><b>${esc(e.symbol)}</b></td><td class="n">${qty(e.qty)}</td><td class="w">${esc(S.controls.paused_instruments[e.symbol]||'Not on the watchlist: ignored.')}</td></tr>`).join('')}</tbody></table>`:'<div class="muted">None detected.</div>'}
   <h3 style="font-size:13px;margin:16px 0 6px">Cash and margin by broker <span class="muted">(capital at one broker cannot fund orders at another)</span></h3>
@@ -205,57 +238,106 @@ function vAlerts(){
   ${S.alerts.length?`<table><tbody>${S.alerts.map(a=>`<tr><td style="white-space:nowrap">${tm(a.ts)}</td><td><span class="tag neg">${esc(a.kind)}</span></td><td class="w">${esc(a.msg)}</td></tr>`).join('')}</tbody></table>`:'<div class="state">No alerts.</div>'}
   <h3 style="font-size:13px;margin:16px 0 6px">Activity log</h3><table><tbody>${S.log.map(a=>`<tr><td style="white-space:nowrap">${tm(a.ts)}</td><td>${esc(a.kind)}</td><td class="w">${esc(a.msg)}</td></tr>`).join('')}</tbody></table>`;
 }
-// ---------------- chart
+// ---------------- chart (drag to pan, wheel or +/− to zoom, hover for values; the last candle follows the live quote)
+const TFN={'5m':'5 min','1h':'1 hour','4h':'4 hour','1d':'Daily'},TFS={'5m':300,'1h':3600,'4h':14400,'1d':86400};
+function chartSyms(){return [...new Set([...S.scanner.map(x=>x.symbol),...S.signals.map(x=>x.symbol),...Object.keys(Q),...S.positions.map(x=>x.symbol)])].sort()}
+async function fetchChart(){const c=await api('/api/chart?symbol='+encodeURIComponent(chartSym)+(chartTf?'&tf='+chartTf:''));chartAt=Date.now();if(!c.empty){c.live=c.bars.t.length;chartTf=c.tf}return c}
 async function vChart(){
-  const syms=[...new Set([...S.scanner.map(x=>x.symbol),...S.signals.map(x=>x.symbol)])].sort();
+  const syms=chartSyms();
   if(!chartSym||!syms.includes(chartSym))chartSym=(S.signals[0]||{}).symbol||syms[0];
-  $('view').innerHTML=`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><select id="cSym">${syms.map(s=>`<option${s===chartSym?' selected':''}>${esc(s)}</option>`).join('')}</select><button id="zin">+</button><button id="zout">−</button><span class="muted" id="cMeta"></span></div>
-  <div class="legend"><span>◆ signal bar</span><span>▲▼ entry fill</span><span>✕ exit / stop fill</span><span style="color:var(--bad)">— stop</span><span style="color:var(--good)">— target</span><span style="color:var(--s1)">— entry</span></div>
-  <div class="chartwrap"><canvas id="cv" height="420"></canvas><div id="tip"></div></div><div id="cState"></div>`;
-  if(!chartSym){$('cState').innerHTML='<div class="state">Nothing to chart yet: the scanner has not stored any bars.</div>';return}
-  try{chart=await api('/api/chart?symbol='+encodeURIComponent(chartSym))}catch(e){chart=null;$('cState').innerHTML=`<div class="state">Chart unavailable: ${esc(e.message)}</div>`;return}
-  if(chart.empty){$('cState').innerHTML=`<div class="state">${esc(chart.message)}</div>`;return}
-  const lastEnd=chart.bars.e[chart.bars.e.length-1],ageH=(Date.parse(S.now)/1000-lastEnd)/3600,lim={'5m':1,'1h':4,'4h':12,'1d':100}[chart.tf]||24;
-  $('cMeta').textContent=`${chart.tf} bars · times in UTC · ${S.data_label}`;
-  $('cState').innerHTML=ageH>lim?`<div class="state">⚠ Stale data: the last completed ${chart.tf} bar ended ${num(ageH,1)} hours before the current clock. The market may be closed, or the feed may have stopped.</div>`:'';
-  view=Math.min(view,chart.bars.t.length);hover=-1;draw();
-  const cv=$('cv');cv.onmousemove=e=>{const g=cv._g;if(!g)return;const r=cv.getBoundingClientRect(),i=g.i0+Math.floor((e.clientX-r.left)/g.bw);const hh=i<g.N?i:-1;if(hh!==hover){hover=hh;draw()}};
-  cv.onmouseleave=()=>{hover=-1;draw()};$('zin').onclick=()=>{view=Math.max(20,Math.round(view*.7));draw()};$('zout').onclick=()=>{view=Math.min(chart.bars.t.length,Math.round(view*1.4));draw()};
-  $('cSym').onchange=e=>{chartSym=e.target.value;vChart()};
+  $('view').innerHTML=`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><select id="cSym" aria-label="Symbol">${syms.map(s=>`<option${s===chartSym?' selected':''}>${esc(s)}</option>`).join('')}</select><span class="seg" id="cTf"></span><span class="seg"><button id="zin" title="Zoom in">+</button><button id="zout" title="Zoom out">−</button><button id="zre" title="Back to the latest bars">Latest</button></span><label class="sub"><input type="checkbox" id="cMa"${ma?' checked':''}> 20 / 50 averages</label><span id="cLive" class="sub"></span></div>
+  <div class="legend"><span>◆ signal bar</span><span>▲▼ entry fill</span><span>✕ exit / stop fill</span><span style="color:var(--bad)">— stop</span><span style="color:var(--good)">— target</span><span style="color:var(--s1)">— entry</span><span style="color:var(--s2)">— 20-bar avg</span><span style="color:var(--warn)">— 50-bar avg</span><span class="muted">drag to move · scroll to zoom · double-click for latest</span></div>
+  <div class="chartwrap"><canvas id="cv" height="440"></canvas><div id="tip"></div></div><div class="muted" id="cMeta"></div><div id="cState"></div>`;
+  if(!chartSym){$('cState').innerHTML='<div class="state">Nothing to chart yet: the worker has not stored any bars.</div>';return}
+  $('cSym').onchange=e=>{chartSym=e.target.value;off=0;vChart()};
+  try{chart=await fetchChart()}catch(e){chart=null;$('cState').innerHTML=`<div class="state">Chart unavailable: ${esc(e.message)}</div>`;return}
+  if(chart.empty){if(chartTf){chartTf=null;return vChart()}$('cState').innerHTML=`<div class="state">${esc(chart.message)}</div>`;return}
+  chartChrome();view=Math.min(view,chart.bars.t.length);hover=-1;applyQuote();draw();
+  const cv=$('cv');let drag=null;
+  cv.onpointerdown=e=>{drag={x:e.clientX,off};cv.setPointerCapture(e.pointerId);cv.classList.add('drag')};
+  cv.onpointerup=cv.onpointercancel=e=>{drag=null;cv.classList.remove('drag')};
+  cv.onpointermove=e=>{const g=cv._g;if(!g)return;const r=cv.getBoundingClientRect();
+    if(drag){off=drag.off+Math.round((e.clientX-drag.x)/g.bw);hover=-1;hoverY=null}else{const i=g.i0+Math.floor((e.clientX-r.left)/g.bw);hover=i<g.i1?i:-1;hoverY=e.clientY-r.top}draw()};
+  cv.onpointerleave=()=>{hover=-1;hoverY=null;draw()};
+  cv.onwheel=e=>{e.preventDefault();const g=cv._g;if(!g)return;const r=cv.getBoundingClientRect(),N=chart.bars.t.length,frac=Math.min(1,Math.max(0,(e.clientX-r.left)/(g.bw*g.n))),at=g.i0+frac*g.n;
+    const nv=Math.max(10,Math.min(N,Math.round(view*(e.deltaY>0?1.2:1/1.2))));off=Math.round(N-(at+(1-frac)*nv));view=nv;draw()};
+  cv.ondblclick=()=>{off=0;draw()};
+  $('zin').onclick=()=>{view=Math.max(10,Math.round(view*.7));draw()};$('zout').onclick=()=>{view=Math.min(chart.bars.t.length,Math.round(view*1.4));draw()};$('zre').onclick=()=>{off=0;draw()};
+  $('cMa').onchange=e=>{ma=e.target.checked;draw()};
 }
+function chartChrome(){
+  if(!$('cTf')||!chart||chart.empty)return;
+  $('cTf').innerHTML=chart.tfs.map(t=>`<button class="${t===chart.tf?'act':''}" data-tf="${t}">${TFN[t]||t}</button>`).join('');
+  $('cTf').onclick=e=>{const b=e.target.closest('[data-tf]');if(b&&b.dataset.tf!==chartTf){chartTf=b.dataset.tf;off=0;view=120;vChart()}};
+  const b=chart.bars,q=Q[chartSym],now=Date.parse(S.now)/1000;
+  $('cMeta').textContent=`${TFN[chart.tf]||chart.tf} bars · times in UTC · ${S.data_label||''}`;
+  if(S.mode==='REPLAY'){$('cLive').innerHTML='<span class="live"></span>replay: recorded bars, not live';$('cState').innerHTML='';return}
+  const age=q?now-Date.parse(q.ts)/1000:null,hbAge=S.health.heartbeat_age_sec;
+  $('cLive').innerHTML=hbAge==null||hbAge>120?'<span class="live"></span>not updating: the worker is not running':!q?'<span class="live"></span>waiting for the first quote':`<span class="live ${age<90?'on':'late'}"></span><b>${px(q.price)}</b> ${qcell(chartSym,'c')} · last trade ${q.ts.slice(11,19)} UTC${age>=90?` (${age>5400?num(age/3600,1)+' h':Math.round(age/60)+' min'} ago${age<1500?': delayed feed':': market closed or quiet'})`:''}`;
+  const ageH=(now-b.e[b.e.length-1])/3600,lim={'5m':1,'1h':4,'4h':12,'1d':100}[chart.tf]||24;
+  $('cState').innerHTML=ageH>lim?`<div class="state">The newest ${TFN[chart.tf]||chart.tf} bar ended ${num(ageH,1)} hours ago. The market may be closed, or the feed may have stopped.</div>`:'';
+}
+function applyQuote(){
+  // Fold the newest quote into the last candle so the chart moves between bar refreshes.
+  if(!chart||chart.empty||S.mode==='REPLAY')return;const q=Q[chartSym];if(!q)return;const b=chart.bars,N=b.t.length,ts=Date.parse(q.ts)/1000,p=q.price,L=N-1;
+  if(ts<b.t[L])return;
+  const same=chart.tf==='1d'?new Date(ts*1000).toISOString().slice(0,10)===new Date(b.t[L]*1000).toISOString().slice(0,10):ts<b.t[L]+TFS[chart.tf];
+  if(same){b.c[L]=p;b.h[L]=Math.max(b.h[L],p);b.l[L]=Math.min(b.l[L],p)}
+  else if(chart.tf!=='1d'&&Date.parse(S.now)/1000-ts<2*TFS[chart.tf]){const t=Math.floor(ts/TFS[chart.tf])*TFS[chart.tf];b.t.push(t);b.e.push(t+TFS[chart.tf]);b.o.push(p);b.h.push(p);b.l.push(p);b.c.push(p);b.v.push(0)}
+}
+function sma(c,n){const o=new Array(c.length).fill(null);let s=0;for(let i=0;i<c.length;i++){s+=c[i];if(i>=n)s-=c[i-n];if(i>=n-1)o[i]=s/n}return o}
 function draw(){
-  const cv=$('cv');if(!cv||!chart||chart.empty)return;const b=chart.bars,N=b.t.length,n=Math.max(Math.min(view,N),Math.min(20,N)),i0=N-n;
-  const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=420;cv.width=W*dpr;cv.height=H*dpr;const g=cv.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);g.font='11px system-ui,sans-serif';
-  const padR=64,padB=18,pw=W-padR,bw=pw/n,x=i=>(i-i0+.5)*bw,ph=H-padB-70,vh=56;
-  let lo=Infinity,hi=-Infinity;for(let i=i0;i<N;i++){lo=Math.min(lo,b.l[i]);hi=Math.max(hi,b.h[i])}
-  const t0=b.t[i0];for(const L of chart.lines){if((L.to||Infinity)<t0)continue;for(const v of [L.stop,L.target])if(v!=null){lo=Math.min(lo,v);hi=Math.max(hi,v)}}
-  const pad=(hi-lo)*.06||1;lo-=pad;hi+=pad;const y=v=>ph*(1-(v-lo)/(hi-lo));
-  const C={grid:css('--grid'),text:css('--muted'),up:css('--up'),dn:css('--down'),ink:css('--text'),s1:css('--s1'),good:css('--good'),bad:css('--bad'),surf:css('--surface')};
+  const cv=$('cv');if(!cv||!chart||chart.empty)return;const b=chart.bars,N=b.t.length;
+  view=Math.max(Math.min(view,N),Math.min(10,N));off=Math.max(0,Math.min(off,N-view));
+  const n=view,i1=N-off,i0=i1-n;
+  const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=440;cv.width=W*dpr;cv.height=H*dpr;const g=cv.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);g.font='11px system-ui,sans-serif';
+  const padR=68,padB=18,pw=W-padR,bw=pw/n,x=i=>(i-i0+.5)*bw,ph=H-padB-70,vh=56;
+  let lo=Infinity,hi=-Infinity;for(let i=i0;i<i1;i++){lo=Math.min(lo,b.l[i]);hi=Math.max(hi,b.h[i])}
+  const t0=b.t[i0],t1=b.t[i1-1];for(const L of chart.lines){if((L.to||Infinity)<t0||L.from>t1)continue;for(const v of [L.stop,L.target])if(v!=null){lo=Math.min(lo,v);hi=Math.max(hi,v)}}
+  const pad=(hi-lo)*.06||hi*.01||1;lo-=pad;hi+=pad;const y=v=>ph*(1-(v-lo)/(hi-lo));
+  const C={grid:css('--grid'),text:css('--muted'),up:css('--up'),dn:css('--down'),ink:css('--text'),s1:css('--s1'),s2:css('--s2'),warn:css('--warn'),good:css('--good'),bad:css('--bad'),surf:css('--surface')};
   const span=hi-lo,st=[1,2,5,10].map(m=>m*10**Math.floor(Math.log10(span/5))).find(s=>s>=span/5);
   g.strokeStyle=C.grid;g.fillStyle=C.text;g.textBaseline='middle';
   for(let v=Math.ceil(lo/st)*st;v<=hi;v+=st){const yy=Math.round(y(v))+.5;g.beginPath();g.moveTo(0,yy);g.lineTo(pw,yy);g.stroke();g.fillText(px(v),pw+6,yy)}
-  const cw=Math.max(1,Math.min(bw*.7,14)),vmax=Math.max(...b.v.slice(i0),1);
-  for(let i=i0;i<N;i++){const up=b.c[i]>=b.o[i];g.fillStyle=g.strokeStyle=up?C.up:C.dn;const xx=Math.round(x(i))+.5;g.beginPath();g.moveTo(xx,y(b.h[i]));g.lineTo(xx,y(b.l[i]));g.stroke();const a=y(Math.max(b.o[i],b.c[i])),z=y(Math.min(b.o[i],b.c[i]));g.fillRect(x(i)-cw/2,a,cw,Math.max(1,z-a));
+  const cw=Math.max(1,Math.min(bw*.7,14));let vmax=1;for(let i=i0;i<i1;i++)vmax=Math.max(vmax,b.v[i]);
+  for(let i=i0;i<i1;i++){const up=b.c[i]>=b.o[i];g.fillStyle=g.strokeStyle=up?C.up:C.dn;const xx=Math.round(x(i))+.5;g.beginPath();g.moveTo(xx,y(b.h[i]));g.lineTo(xx,y(b.l[i]));g.stroke();const a=y(Math.max(b.o[i],b.c[i])),z=y(Math.min(b.o[i],b.c[i]));g.fillRect(x(i)-cw/2,a,cw,Math.max(1,z-a));
     if(vmax>1){g.globalAlpha=.5;const hh=vh*b.v[i]/vmax;g.fillRect(x(i)-cw/2,H-padB-hh,cw,hh);g.globalAlpha=1}}
+  if(ma){g.save();g.beginPath();g.rect(0,0,pw,ph);g.clip();for(const [len,col] of [[20,C.s2],[50,C.warn]]){const m=sma(b.c,len);g.strokeStyle=col;g.lineWidth=1.5;g.beginPath();let on=false;for(let i=Math.max(i0-1,0);i<i1;i++){if(m[i]==null)continue;on?g.lineTo(x(i),y(m[i])):g.moveTo(x(i),y(m[i]));on=true}g.stroke()}g.restore();g.lineWidth=1}
   const idx=t=>{let k=-1;for(let i=0;i<N;i++){if(b.t[i]<=t)k=i;else break}return k};
-  for(const L of chart.lines){const a=Math.max(idx(L.from),i0),z=L.to?idx(L.to):N-1;if(z<i0)continue;for(const [v,col,dash] of [[L.stop,C.bad,[4,3]],[L.target,C.good,[4,3]],[L.entry,C.s1,[]]]){if(v==null)continue;g.strokeStyle=col;g.lineWidth=1.5;g.setLineDash(dash);g.beginPath();g.moveTo(x(a)-bw/2,y(v));g.lineTo(x(Math.max(z,a))+bw/2,y(v));g.stroke();g.setLineDash([])}}
-  for(const m of chart.marks){let i=idx(m.t);if(m.kind==='signal'){i=b.e.findIndex(e=>e===m.t)}if(i<i0||i<0)continue;const xx=x(i),yy=m.price!=null?y(m.price):y(b.c[i]);g.fillStyle=C.ink;g.strokeStyle=C.surf;g.lineWidth=2;g.beginPath();
+  for(const L of chart.lines){const a=Math.max(idx(L.from),i0),z=Math.min(L.to?idx(L.to):N-1,i1-1);if(z<i0||a>=i1)continue;for(const [v,col,dash] of [[L.stop,C.bad,[4,3]],[L.target,C.good,[4,3]],[L.entry,C.s1,[]]]){if(v==null)continue;g.strokeStyle=col;g.lineWidth=1.5;g.setLineDash(dash);g.beginPath();g.moveTo(x(a)-bw/2,y(v));g.lineTo(x(Math.max(z,a))+bw/2,y(v));g.stroke();g.setLineDash([])}}
+  g.lineWidth=1;
+  for(const m of chart.marks){let i=idx(m.t);if(m.kind==='signal'){i=b.e.findIndex(e=>e===m.t)}if(i<i0||i<0||i>=i1)continue;const xx=x(i),yy=m.price!=null?y(m.price):y(b.c[i]);g.fillStyle=C.ink;g.strokeStyle=C.surf;g.lineWidth=2;g.beginPath();
     if(m.kind==='signal'){g.moveTo(xx,yy-6);g.lineTo(xx+5,yy);g.lineTo(xx,yy+6);g.lineTo(xx-5,yy)}else if(m.kind==='entry'){const s=m.side>0?1:-1;g.moveTo(xx,yy-7*s);g.lineTo(xx-6,yy+4*s);g.lineTo(xx+6,yy+4*s)}else{g.moveTo(xx-5,yy-5);g.lineTo(xx+5,yy+5);g.moveTo(xx+5,yy-5);g.lineTo(xx-5,yy+5);g.closePath();g.strokeStyle=C.ink;g.lineWidth=2.5;g.stroke();continue}
     g.closePath();g.stroke();g.fill()}
+  g.lineWidth=1;
+  const tag=(v,col,fg)=>{const yy=Math.min(Math.max(y(v),8),ph-8);g.fillStyle=col;g.fillRect(pw+1,yy-9,padR-2,18);g.fillStyle=fg;g.textBaseline='middle';g.textAlign='left';g.fillText(px(v),pw+6,yy)};
+  const lastP=b.c[N-1];if(lastP>=lo&&lastP<=hi){const yy=Math.round(y(lastP))+.5,up=b.c[N-1]>=b.o[N-1];g.strokeStyle=up?C.up:C.dn;g.setLineDash([2,3]);g.beginPath();g.moveTo(0,yy);g.lineTo(pw,yy);g.stroke();g.setLineDash([]);tag(lastP,up?C.up:C.dn,'#fff')}
   g.fillStyle=C.text;g.textBaseline='top';g.textAlign='center';const fmt=t=>{const d=new Date(t*1000).toISOString();return chart.tf==='1d'?d.slice(5,10):d.slice(5,16).replace('T',' ')};
-  const stepN=Math.ceil(n/Math.max(2,Math.floor(pw/120)));for(let i=N-1-Math.floor(stepN/2);i>=i0;i-=stepN)g.fillText(fmt(b.t[i]),x(i),H-padB+4);g.textAlign='left';
+  const stepN=Math.ceil(n/Math.max(2,Math.floor(pw/120)));for(let i=i1-1-Math.floor(stepN/2);i>=i0;i-=stepN)g.fillText(fmt(b.t[i]),x(i),H-padB+4);g.textAlign='left';
   const tip=$('tip');
-  if(hover>=i0&&hover<N){const xx=Math.round(x(hover))+.5;g.strokeStyle=C.text;g.setLineDash([4,3]);g.beginPath();g.moveTo(xx,0);g.lineTo(xx,H-padB);g.stroke();g.setLineDash([]);const i=hover;
-    const ms=chart.marks.filter(m=>(m.kind==='signal'?b.e[i]===m.t:idx(m.t)===i));
-    tip.innerHTML=`<b>${new Date(b.t[i]*1000).toISOString().slice(0,16).replace('T',' ')} UTC</b><br>O ${px(b.o[i])} H ${px(b.h[i])} L ${px(b.l[i])} C <b>${px(b.c[i])}</b>${b.v[i]?'<br>Vol '+Number(b.v[i]).toLocaleString():''}${ms.map(m=>'<br>• '+esc(m.label)).join('')}`;
+  if(hover>=i0&&hover<i1){const xx=Math.round(x(hover))+.5;g.strokeStyle=C.text;g.setLineDash([4,3]);g.beginPath();g.moveTo(xx,0);g.lineTo(xx,H-padB);g.stroke();
+    if(hoverY!=null&&hoverY<ph){const yy=Math.round(hoverY)+.5;g.beginPath();g.moveTo(0,yy);g.lineTo(pw,yy);g.stroke();g.setLineDash([]);tag(lo+(1-hoverY/ph)*(hi-lo),C.ink,C.surf)}g.setLineDash([]);const i=hover;
+    const ms=chart.marks.filter(m=>(m.kind==='signal'?b.e[i]===m.t:idx(m.t)===i)),chg=i>0?(b.c[i]/b.c[i-1]-1)*100:null;
+    tip.innerHTML=`<b>${new Date(b.t[i]*1000).toISOString().slice(0,chart.tf==='1d'?10:16).replace('T',' ')}${chart.tf==='1d'?'':' UTC'}</b>${i===N-1&&S.mode!=='REPLAY'&&i>=chart.live-1?' · <span class="pos">forming</span>':''}<br>O ${px(b.o[i])} H ${px(b.h[i])} L ${px(b.l[i])} C <b>${px(b.c[i])}</b>${chg==null?'':` <span class="${chg>=0?'pos':'neg'}">${chg>=0?'+':'−'}${num(Math.abs(chg))}%</span>`}${b.v[i]?'<br>Vol '+Number(b.v[i]).toLocaleString():''}${ms.map(m=>'<br>• '+esc(m.label)).join('')}`;
     tip.style.display='block';const tw=tip.offsetWidth;tip.style.left=(xx+12+tw>pw?xx-12-tw:xx+12)+'px';tip.style.top='8px'}else tip.style.display='none';
-  cv._g={i0,bw,N};
+  cv._g={i0,i1,n,bw,N};
 }
+// ---------------- live prices: quotes every 3 s, chart bars every 15 s, without rebuilding the page
+async function liveTick(){
+  if(!S||S.mode==='REPLAY'||fails)return;
+  try{const r=await api('/api/quotes');Q=r.quotes||{};S.now=r.now}catch(e){return}
+  document.querySelectorAll('[data-q]').forEach(el=>{const h=qcell(el.dataset.q,el.dataset.qf);if(el.innerHTML!==h)el.innerHTML=h});
+  if(tab!=='Chart'||!chart||chart.empty||!$('cv'))return;
+  if(Date.now()-chartAt>15000&&!$('cv').classList.contains('drag')){chartAt=Date.now();try{const c=await fetchChart();if(!c.empty&&c.symbol===chartSym&&c.tf===chartTf){const grew=c.bars.t.length-chart.bars.t.length;chart=c;if(off>0&&grew>0)off+=grew}}catch(e){}}
+  applyQuote();chartChrome();draw();
+}
+setInterval(liveTick,3000);
 // ---------------- events
-document.addEventListener('click',e=>{const d=e.target.closest('[data-tab],[data-sig],[data-chart],[data-flat],[data-wl-rm]');if(!d)return;const ds=d.dataset;
+document.addEventListener('click',e=>{const d=e.target.closest('[data-tk],[data-tab],[data-sig],[data-chart],[data-flat],[data-wl-rm]');if(!d)return;const ds=d.dataset;
+  if(ds.tk){return ticket(ds.tk,ds.act)}
   if(ds.wlRm){return wl({action:'remove',market:ds.wlM,symbol:ds.wlRm})}
-  if(ds.flat){e.stopPropagation();return control({action:'flatten',trade_ids:[+ds.flat]},`Close position #${ds.flat} at market? This sends a real order in PAPER/LIVE mode.`)}
-  if(ds.chart){chartSym=ds.chart;tab='Chart';return render()}
+  if(ds.flat){e.stopPropagation();return control({action:'flatten',trade_ids:[+ds.flat]},S.mode==='MANUAL'?`Write a ticket to close position #${ds.flat}? You then place the sell order at Fidelity.`:`Close position #${ds.flat} at market? This sends a real order in PAPER/LIVE mode.`)}
+  if(ds.chart){e.stopPropagation();chartSym=ds.chart;off=0;tab='Chart';return render()}
   if(ds.tab){tab=ds.tab;return render()}
   if(ds.sig){selSig=selSig===ds.sig?null:ds.sig;return render()}});
 $('bKill').onclick=()=>control({action:'kill',on:!S.controls.kill},S.controls.kill?'Turn the kill switch OFF and allow new entries again?':'Turn the kill switch ON? Working entries are cancelled and no new entries are sent. Protective exits stay in place.');

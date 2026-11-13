@@ -30,13 +30,16 @@ def ts(x) -> pd.Timestamp:
 
 
 class Engine:
-    def __init__(self, cfg, store, brokers: dict, data, mode: str, earnings=None, calendar=None, notify=None, only=None, record_scanner=True, watchlist=None):
+    def __init__(self, cfg, store, brokers: dict, data, mode: str, earnings=None, calendar=None, notify=None, only=None, record_scanner=True, watchlist=None, live_view=False):
         self.cfg, self.store, self.brokers, self.data, self.mode = cfg, store, brokers, data, mode
         self.earnings, self.calendar, self.notify = earnings, calendar, notify
         self.strategies = enabled_strategies(cfg, only)
         self.record_scanner = record_scanner
         self.watchlist = watchlist            # optional editable watchlist (paper/live); None = use the config as is
         self.watching: set = set()
+        self.live_view = live_view            # paper/live/manual: keep latest quotes and intraday bars for the dashboard
+        self._live_at: dict = {}
+        self._prev_close: dict = {}
         self.now: pd.Timestamp | None = None
         self.insts: dict = {}
         self.broker_ok: dict[str, bool] = {}
@@ -85,6 +88,7 @@ class Engine:
         self._scan()
         self._process_signals()
         self._ensure_protection()
+        self._live()
         self.store.set("heartbeat", iso(self.now))
 
     # ------------------------------------------------------------------ instruments
@@ -98,7 +102,7 @@ class Engine:
         if self._inst_day == day and self.insts and not changed:
             return
         self._inst_day = day
-        m, problems, insts = self.cfg.markets, {}, {}
+        m, problems, insts, retry = self.cfg.markets, {}, {}, []
 
         def add(market, symbols, **kw):
             b = self.brokers.get(m[market].broker)
@@ -112,12 +116,15 @@ class Engine:
                     inst = b.instrument(s)
                 except (BrokerError, BrokerTimeout) as e:
                     problems[s] = f"instrument lookup failed: {redact(e)}"
+                    if s in self.insts:              # a lookup outage must not look like "removed from the watchlist"
+                        insts[s] = self.insts[s]
+                        retry.append(s)
                     continue
                 if inst is None:
                     problems[s] = f"not found or not tradable at {b.key}"
                 else:
                     if market == "stock":
-                        inst.is_etf = s in m.stock.etfs
+                        inst.is_etf = inst.is_etf or s in m.stock.etfs
                     insts[inst.symbol] = inst
         add("stock", m.stock.watchlist)
         add("forex", m.forex.pairs)
@@ -159,6 +166,8 @@ class Engine:
                 if old is not None:
                     insts[row["symbol"]] = old
         self.insts = insts
+        if retry:
+            self._inst_day = None                    # look them up again next step
         self.store.set("active_contracts", active)
         self.store.set("instrument_problems", problems)
         self.store.set("instruments", {s: i.to_dict() for s, i in insts.items()})
@@ -250,6 +259,9 @@ class Engine:
                 self.store.update("orders", "cid", o["cid"], note=b.get("note") or o.get("note") or "rejected by broker")
                 self._on_reject(self.store.one("SELECT * FROM orders WHERE cid=?", (o["cid"],)))
 
+    def _fill_label(self) -> str:
+        return {"REPLAY": "simulated fill", "BACKTEST": "simulated fill", "MANUAL": "fill recorded by you"}.get(self.mode, "fill")
+
     def _book_entry(self, o, inst, qty, px, fee):
         sig = self.store.one("SELECT * FROM signals WHERE id=?", (o["signal_id"],))
         t = self.store.one("SELECT * FROM trades WHERE signal_id=? AND status!='closed'", (o["signal_id"],))
@@ -267,7 +279,7 @@ class Engine:
             self.store.update("trades", "id", t["id"], qty=t["qty"] + qty, qty_total=tot, entry_avg=avg, fees=t["fees"] + fee,
                               planned_risk=abs(avg - t["stop"]) * tot * inst.multiplier * fx)
         self.store.update("signals", "id", sig["id"], status="traded")
-        label = "simulated fill" if self.mode in ("REPLAY", "BACKTEST") else "fill"
+        label = self._fill_label()
         self.log("fill", f"{label}: {'bought' if o['side'] == 'buy' else 'sold'} {qty:g} {inst.symbol} @ {px:g} ({sig['strategy']} entry; expected {o['expected_price']:g})")
 
     def _book_exit(self, o, inst, qty, px, fee):
@@ -288,7 +300,7 @@ class Engine:
         if left <= EPS:
             fields.update(status="closed", closed=iso(self.now), qty=0.0)
         self.store.update("trades", "id", t["id"], **fields)
-        label = "simulated fill" if self.mode in ("REPLAY", "BACKTEST") else "fill"
+        label = self._fill_label()
         self.log("fill", f"{label}: {'bought' if o['side'] == 'buy' else 'sold'} {qty:g} {inst.symbol} @ {px:g} ({o['role']}; trade #{t['id']} "
                          f"{'closed' if left <= EPS else f'{left:g} left'}, realized ${fields['realized'] - fields['fees']:,.2f} net)")
         if left <= EPS:
@@ -335,9 +347,10 @@ class Engine:
                     else:
                         self.store.update("orders", "cid", o["cid"], status="canceled", note="order no longer exists at the broker")
                         self.alert("order_missing", f"{o['role']} order {o['cid']} for {o['symbol']} is no longer at {key}; treated as cancelled")
-                pos = b.positions()
+                # A ticket broker's positions are just the fills you recorded, i.e. the same source as the journal: nothing to compare.
+                pos = {} if getattr(b, "manual", False) else b.positions()
                 mine: dict[str, float] = {}
-                for t in self.store.q("SELECT symbol, side, qty FROM trades WHERE status!='closed' AND broker=?", (key,)):
+                for t in ([] if getattr(b, "manual", False) else self.store.q("SELECT symbol, side, qty FROM trades WHERE status!='closed' AND broker=?", (key,))):
                     mine[t["symbol"]] = mine.get(t["symbol"], 0.0) + t["side"] * t["qty"]
                 for sym in set(pos) | set(mine):
                     diff = round(pos.get(sym, {"qty": 0.0})["qty"] - mine.get(sym, 0.0), 8)
@@ -500,6 +513,13 @@ class Engine:
                 self.log("kill_switch", f"kill switch: cancelled working entry {o['cid']} ({o['symbol']}); protective exits untouched")
             for s in self.store.q("SELECT id FROM signals WHERE status='pending'"):
                 self.store.update("signals", "id", s["id"], status="skipped", decision="Kill switch is ON: entry not sent.")
+        # A ticket nobody acted on must not sit there after the signal has lapsed (a broker would have filled or rejected it).
+        for o in self.store.active_orders(role="entry"):
+            if getattr(self.brokers.get(o["broker"]), "manual", False) and o["status"] != "pending_cancel":
+                sig = self.store.one("SELECT expires FROM signals WHERE id=?", (o["signal_id"],))
+                if sig and sig["expires"] and self.now >= ts(sig["expires"]):
+                    self._cancel(o)
+                    self.log("ticket_expired", f"entry ticket for {o['symbol']} withdrawn: the signal expired before the order was filled")
         req = self._get("flatten_request")
         if req:
             self.store.set("flatten_request", None)
@@ -624,12 +644,8 @@ class Engine:
                 if scanner is not None:
                     scanner[key] = {"strategy": strat.name, "symbol": inst.symbol, "market": inst.market, "last_bar": iso(last_bar),
                                     "checks": strat.snapshot(inst, df, self.now)}
-                    d = df.iloc[max(n - 300, 0):n]
-                    payload = json.dumps({"t": [int(x.timestamp()) for x in d["start"]], "e": [int(x.timestamp()) for x in d.index],
-                                          **{k[0]: [round(float(x), 6) for x in d[k]] for k in ("open", "high", "low", "close", "volume")}})
-                    with self.store.lock:
-                        self.store.db.execute("INSERT INTO barcache(symbol,tf,updated,payload) VALUES(?,?,?,?) ON CONFLICT(symbol,tf) DO UPDATE SET "
-                                              "updated=excluded.updated, payload=excluded.payload", (inst.symbol, strat.timeframe, iso(self.now), payload))
+                    if not self.live_view or strat.timeframe not in ("5m", "1d"):      # the live view keeps those two fresher than this does
+                        self._cache_bars(inst.symbol, strat.timeframe, df.iloc[max(n - 300, 0):n])
         if scanner is not None and len(scanner) != len(self._get("scanner", {})):
             dirty = True
         if dirty or self._feed_errors:
@@ -639,6 +655,50 @@ class Engine:
             if scanner is not None:
                 self.store.set("scanner", scanner)
             self.store.set("last_scan_at", iso(self.now))
+
+    def _cache_bars(self, symbol, tf, d):
+        payload = json.dumps({"t": [int(x.timestamp()) for x in d["start"]], "e": [int(x.timestamp()) for x in d.index],
+                              **{k[0]: [round(float(x), 6) for x in d[k]] for k in ("open", "high", "low", "close", "volume")}})
+        with self.store.lock:
+            self.store.db.execute("INSERT INTO barcache(symbol,tf,updated,payload) VALUES(?,?,?,?) ON CONFLICT(symbol,tf) DO UPDATE SET "
+                                  "updated=excluded.updated, payload=excluded.payload", (symbol, tf, iso(self.now), payload))
+
+    # ------------------------------------------------------------------ live view (dashboard only; never an input to a trading decision)
+    def _live(self):
+        if not self.live_view:
+            return
+        quotes = {k: v for k, v in (self._get("quotes", {}) or {}).items() if k in self.insts}
+        every, daily_every = float(self.cfg.live_view_seconds), 300.0
+        for sym, inst in list(self.insts.items()):
+            b = self.brokers.get(inst.broker)
+            if b is None or not self.broker_ok.get(inst.broker) or not self._tradable(inst):
+                continue
+            last = self._live_at.get(sym, {})
+            try:
+                if "q" not in last or (self.now - last["q"]).total_seconds() >= every - 0.5:
+                    last["q"] = self.now
+                    q = b.quote(inst)
+                    if q and q["bid"] > 0 and q["ask"] > 0:
+                        quotes[sym] = {"price": (q["bid"] + q["ask"]) / 2, "bid": None if q.get("last_only") else q["bid"], "ask": None if q.get("last_only") else q["ask"],
+                                       "ts": iso(q["ts"]), "seen": iso(self.now), "prev_close": self._prev_close.get(sym), "market": inst.market}
+                    d5 = b.bars(inst, "5m", 400)
+                    if d5 is not None and len(d5):
+                        self._cache_bars(sym, "5m", d5)
+                if "d" not in last or (self.now - last["d"]).total_seconds() >= daily_every:
+                    last["d"] = self.now
+                    d1 = b.bars(inst, "1d", 300)
+                    if d1 is not None and len(d1):
+                        self._cache_bars(sym, "1d", d1)
+                        done = d1[d1.index <= self.now]
+                        if len(done):
+                            self._prev_close[sym] = float(done["close"].iloc[-1])
+                            if sym in quotes:
+                                quotes[sym]["prev_close"] = self._prev_close[sym]
+            except (BrokerTimeout, BrokerError) as e:
+                self._feed_errors[f"{sym}:live"] = redact(e)
+                self.store.set("feed_errors", self._feed_errors)
+            self._live_at[sym] = last
+        self.store.set("quotes", quotes)
 
     # ------------------------------------------------------------------ entries
     def _process_signals(self):
@@ -686,7 +746,9 @@ class Engine:
         if strat.timeframe == "1d":
             df = self._bars(inst, "1d")
             d = upto(df, self.now) if df is not None else None
-            if d is None or not len(d) or d.index[-1] != ts(sig["time"]):
+            if d is None or not len(d):
+                return "wait", "daily bars are unavailable right now", checks
+            if d.index[-1] != ts(sig["time"]):
                 return "skip", "entry window passed: a newer session has completed since the signal", checks
         try:
             if not b.market_open(inst):

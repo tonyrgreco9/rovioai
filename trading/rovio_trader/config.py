@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULTS: dict = {
     "state_dir": "state",
     "poll_seconds": 20,
+    "live_view_seconds": 10,             # how often the worker refreshes dashboard quotes and intraday chart bars
     "alert_webhook_env": "ROVIO_ALERT_WEBHOOK",   # NAME of an env var holding a webhook URL (optional)
     "portfolio": {
         "daily_reset_tz": "America/New_York",

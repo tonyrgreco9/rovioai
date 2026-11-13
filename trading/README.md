@@ -50,6 +50,7 @@ Windows PowerShell: use `copy` instead of `cp`.
 | Pipeline check without data | `python -m rovio_trader backtest all` (synthetic prices; never evidence) |
 | Connect Alpaca paper | add keys to `.env`, then `python -m rovio_trader check alpaca` |
 | Connect OANDA Practice | add token + account id to `.env`, then `python -m rovio_trader check oanda` |
+| Fidelity ticket mode | `python -m rovio_trader worker --manual --cash 25000`, `serve --mode manual`, `tickets` |
 | IBKR / Fidelity status | `python -m rovio_trader check ibkr` / `check fidelity` |
 | Start the paper worker | `python -m rovio_trader worker` |
 | Dashboard for paper | `python -m rovio_trader serve --mode paper` |
@@ -135,6 +136,48 @@ data sharing for approved aggregators. Order-capable connectivity (Integration X
 FIX) belongs to Fidelity Institutional's custody-and-clearing clients. This software has never
 connected to Fidelity, does not know your account type, never asks for your Fidelity password, and
 does not automate the website. `check fidelity` lists what would have to be true to change this.
+
+### Fidelity ticket mode (you place every order)
+
+Because no order can be sent to Fidelity, ticket mode does everything except the click: it scans US
+stocks and ETFs, applies the same checks and position sizing, and writes a **ticket**. You place the
+order at Fidelity and record what happened; the bot then tracks the position, writes the
+protective-stop ticket, and later the exit ticket.
+
+```
+python -m rovio_trader check feed                       # proves the price feed answers from your PC
+python -m rovio_trader worker --manual --cash 25000     # window 1: the amount it may plan with
+python -m rovio_trader serve --mode manual              # window 2: dashboard, Tickets tab
+```
+
+- `--cash` is needed once. It is bookkeeping: the bot cannot read your Fidelity balance, so equity and
+  cash are that figure adjusted by the fills you record. A fill you do not record makes them wrong.
+- A stop ticket is only protection once you have placed the stop order at Fidelity and marked it
+  placed. Until then the position shows "stop ticket not placed yet".
+- To close a position whose stop is resting at Fidelity, the bot first asks you to cancel the stop,
+  then writes the sell ticket, so it never asks you to sell shares an open order is holding.
+- An entry ticket nobody acts on is withdrawn when its signal expires. Stock entries are written
+  between 5 and 60 minutes after the open, so that is when you need to look.
+- Ticket mode keeps its own journal (`state/manual.db`), trades stocks and ETFs only, and uses the
+  `breakout` and `earnings` strategies. `tickets list|placed|fill|cancel` does the same from the
+  command line.
+
+Prices in ticket mode come from Yahoo Finance's public chart endpoint, since there is no broker
+connection to take them from. It is unofficial, reports the last trade only (no bid or ask, so the
+spread check cannot protect you), can lag by up to about 15 minutes and can stop without notice. It
+was not reachable from the development environment: the parser and the ticket flow are tested against
+recorded response shapes, not the live service. Run `check feed` first.
+
+## Live prices and the chart
+
+In paper, live and ticket mode the worker refreshes a quote and 5-minute bars for every watched symbol
+each cycle (`poll_seconds`, default 20; `live_view_seconds` sets the minimum gap) and daily bars every
+five minutes. The dashboard polls those every 3 seconds: the Watchlist shows last price, change on the
+day and the time of the last trade, and the chart's newest candle follows the quote. The chart
+supports drag to move, scroll to zoom around the pointer, a crosshair with price and bar values,
+5-minute and daily bars, and 20 / 50-bar averages. How current a price is depends on the source:
+Alpaca's IEX feed is real time for one venue; the ticket-mode feed can be delayed. The dot beside each
+quote is green when the last trade is under 90 seconds old and amber when it is older.
 
 ## Engineering decisions worth knowing
 

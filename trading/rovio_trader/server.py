@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, urlparse
 import pandas as pd
 
 from . import backtest
+from .brokers.manual import instruction, ticket_action
 from .brokers.unavailable import FIDELITY_STATUS, IBKR_STATUS
 from .config import STRATEGY_MARKET, STRATEGY_VERSION
 from .instruments import usd_per_quote
@@ -60,7 +61,8 @@ def build_state(store: Store, cfg) -> dict:
         unreal_by[t["strategy"]] = unreal_by.get(t["strategy"], 0.0) + (u or 0.0)
         stops = store.q("SELECT cid, status, qty, filled_qty FROM orders WHERE trade_id=? AND role='stop' AND status IN ('created','uncertain','new','partially_filled','pending_cancel')", (t["id"],))
         positions.append({**t, "mark": m, "unrealized": u, "open_risk": risk, "notional": notional,
-                          "protected": t["id"] not in unprotected and bool(stops), "stop_qty": sum(s["qty"] - s["filled_qty"] for s in stops)})
+                          "protected": t["id"] not in unprotected and bool(stops), "stop_qty": sum(s["qty"] - s["filled_qty"] for s in stops),
+                          "stop_unplaced": any(store.one("SELECT 1 FROM tickets WHERE cid=? AND placed=0", (s["cid"],)) for s in stops)})
     strategies = []
     evidence = backtest.load_evidence(cfg)
     acts = store.q("SELECT * FROM activations")
@@ -97,7 +99,17 @@ def build_state(store: Store, cfg) -> dict:
                 st, detail = "pending", "Saved. The worker applies it on its next cycle" + ("" if hb else " (the worker is not running)") + "."
             rows.append({"market": m, "symbol": sym, "broker": mcfg["broker"], "etf": m == "stock" and sym in wl["etfs"], "status": st, "detail": detail,
                          "held": bool(store.one("SELECT 1 FROM trades WHERE status!='closed' AND symbol=?", (real,)))})
+    tickets = []
+    for t in store.q("SELECT * FROM tickets ORDER BY (status IN ('new','partially_filled')) DESC, created DESC LIMIT 200"):
+        o = store.one("SELECT signal_id, trade_id, expected_price FROM orders WHERE cid=?", (t["cid"],)) or {}
+        sig = store.one("SELECT strategy, stop, target, expires, why FROM signals WHERE id=?", (o.get("signal_id"),)) or {}
+        tr = store.one("SELECT exit_reason FROM trades WHERE id=?", (o.get("trade_id"),)) or {}
+        active = t["status"] in ("new", "partially_filled")
+        tickets.append({**t, "active": active, "needs_action": active and (not t["placed"] or bool(t["cancel_requested"])), "instruction": instruction(t) if active else "",
+                        "expected_price": o.get("expected_price"), "strategy": sig.get("strategy"), "plan_stop": sig.get("stop"), "plan_target": sig.get("target"),
+                        "expires": sig.get("expires") if t["role"] == "entry" else None, "why": sig.get("why") if t["role"] == "entry" else tr.get("exit_reason")})
     return _clean({
+        "tickets": tickets, "manual_cash": g("manual_cash"), "quotes": g("quotes", {}) or {},
         "watchlist": rows, "watchlist_markets": {m: {"broker": cfg.markets[m]["broker"], "enabled": cfg.markets[m]["enabled"]} for m in MARKETS},
         "mode": mode, "now": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "data_label": g("data_label") or "; ".join(f"{k}: {b['data']}" for k, b in (g("brokers", {}) or {}).items()),
         "replay": g("replay"), "brokers": g("brokers", {}), "reconcile": g("reconcile", {}),
@@ -132,6 +144,7 @@ def build_chart(store: Store, symbol: str, tf: str | None) -> dict:
     rows = store.q("SELECT * FROM barcache WHERE symbol=?" + (" AND tf=?" if tf else ""), (symbol, tf) if tf else (symbol,))
     if not rows:
         return {"symbol": symbol, "empty": True, "message": "No bars cached for this symbol yet. The worker stores bars when it scans."}
+    rows.sort(key=lambda x: ["1d", "4h", "1h", "5m"].index(x["tf"]) if x["tf"] in ("1d", "4h", "1h", "5m") else 9)
     r = rows[0]
     ep = lambda x: int(pd.Timestamp(x).timestamp()) if x else None
     marks = []
@@ -143,7 +156,8 @@ def build_chart(store: Store, symbol: str, tf: str | None) -> dict:
     lines = [{"from": ep(t["opened"]), "to": ep(t["closed"]), "stop": t["stop"], "target": t["target"], "entry": t["entry_avg"]}
              for t in store.q("SELECT * FROM trades WHERE symbol=?", (symbol,))]
     return _clean({"symbol": symbol, "tf": r["tf"], "updated": r["updated"], "bars": json.loads(r["payload"]), "marks": marks, "lines": lines,
-                   "timezone": "UTC", "tfs": [x["tf"] for x in store.q("SELECT tf FROM barcache WHERE symbol=?", (symbol,))]})
+                   "timezone": "UTC", "quote": (store.get("quotes", {}) or {}).get(symbol),
+                   "tfs": sorted((x["tf"] for x in store.q("SELECT tf FROM barcache WHERE symbol=?", (symbol,))), key=["5m", "1h", "4h", "1d"].index)})
 
 
 def make_handler(db_path: str, cfg):
@@ -185,6 +199,9 @@ def make_handler(db_path: str, cfg):
                 return self._send(200, (WEB / "index.html").read_bytes(), "text/html; charset=utf-8")
             if u.path == "/api/state":
                 return self._guard(lambda s: build_state(s, cfg))
+            if u.path == "/api/quotes":
+                return self._guard(lambda s: _clean({"quotes": s.get("quotes", {}) or {}, "heartbeat": s.get("heartbeat"),
+                                                     "now": pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%dT%H:%M:%SZ")}))
             if u.path == "/api/chart":
                 if not re.fullmatch(r"[A-Za-z0-9./\-=]{1,20}", q.get("symbol", "")):
                     return self._send(400, {"error": "bad symbol"})
@@ -209,6 +226,14 @@ def make_handler(db_path: str, cfg):
                     s.event(pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%dT%H:%M:%SZ"), "INFO", "operator", f"watchlist: {action} {market} {sym}")
                     return {"ok": True, "symbol": sym}
                 return self._guard(edit)
+            if urlparse(self.path).path == "/api/ticket":
+                def tick(s: Store):
+                    cid, action = str(body.get("cid", "")), body.get("action")
+                    t = ticket_action(s, cid, action, body.get("qty"), body.get("price"), body.get("fees") or 0.0)
+                    s.event(pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%dT%H:%M:%SZ"), "INFO", "operator",
+                            f"ticket {t['symbol']} {t['role']}: {action}" + (f" {float(body['qty']):g} @ {float(body['price']):g}" if action == "fill" else ""))
+                    return {"ok": True, "status": t["status"], "note": "Recorded. The worker picks it up on its next cycle."}
+                return self._guard(tick)
             if urlparse(self.path).path != "/api/control":
                 return self._send(404, {"error": "Not found"})
 
